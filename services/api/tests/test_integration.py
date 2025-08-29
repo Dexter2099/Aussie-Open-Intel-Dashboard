@@ -56,6 +56,10 @@ def api_base_url():
 
     ingest_env = env.copy()
     ingest_env["DATABASE_URL"] = "postgresql://aoidb:aoidb@localhost:5432/aoidb"
+    subprocess.run([
+        "python",
+        "scripts/seed_sources.py",
+    ], check=True, env=ingest_env)
     subprocess.run(
         ["python", "-m", "ingest.run", "--adapter", "au_wildfire_fixture"],
         check=True,
@@ -75,8 +79,15 @@ def test_sources(api_base_url):
     r = requests.get(f"{api_base_url}/sources")
     assert r.status_code == 200
     data = r.json()
-    assert data["count"] >= 1
-    assert any(src["name"] == "AU Wildfire Fixture" for src in data["results"])
+    names = {src["name"] for src in data["results"]}
+    expected = {
+        "BOM Warnings",
+        "QFES Incidents",
+        "Police Media",
+        "AIS Summary",
+        "CERT/ACSC Advisories",
+    }
+    assert expected.issubset(names)
 
 
 def test_search_and_detail(api_base_url):

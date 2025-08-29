@@ -543,7 +543,7 @@ async def events_geojson(q: Optional[str] = None, bbox: Optional[str] = None, ti
 async def list_sources():
     rows = fetch_all(
         """
-        SELECT id, name, type
+        SELECT id, name, url, type, legal_notes
         FROM sources
         ORDER BY name ASC
         """
