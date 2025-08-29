@@ -214,6 +214,22 @@ export default function App() {
     setTimeRange(`${start.toISOString()}..${end.toISOString()}`)
   }
 
+  const saveToNotebook = async (eventId: number) => {
+    const title = window.prompt('Notebook title?')
+    if (!title) return
+    try {
+      await fetch(`${API_BASE}/notebooks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, items: [{ event: eventId }] })
+      })
+      window.alert('Saved to notebook')
+    } catch (e) {
+      console.error(e)
+      window.alert('Failed to save')
+    }
+  }
+
   // Update selected ring highlight when selection changes
   useEffect(() => {
     const map = mapRef.current
@@ -308,6 +324,12 @@ export default function App() {
                     )}
                   </div>
                   <div style={{ fontSize: 12, color: '#666' }}>{r.detected_at?.replace('T', ' ').replace('Z','')} {r.jurisdiction ? `• ${r.jurisdiction}` : ''}</div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); saveToNotebook(r.id) }}
+                    style={{ marginTop: 6 }}
+                  >
+                    Save to notebook
+                  </button>
                 </div>
               )
             })}

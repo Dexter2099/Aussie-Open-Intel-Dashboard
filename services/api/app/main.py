@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import structlog
 from structlog.contextvars import bind_contextvars, clear_contextvars
-from fastapi import FastAPI, Query, HTTPException, Depends, Request
+from fastapi import FastAPI, Query, HTTPException, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse, JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
@@ -11,7 +11,14 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 
-from .schemas import Event, Entity, Notebook, SearchQuery
+from .schemas import (
+    Event,
+    Entity,
+    Notebook,
+    NotebookCreate,
+    NotebookUpdate,
+    SearchQuery,
+)
 from .db import fetch_all, fetch_one
 from .auth import get_current_user, create_access_token
 
@@ -230,14 +237,99 @@ async def graph(seed: Optional[int] = Query(default=None, description="Seed enti
 
 
 @app.get("/notebooks/{notebook_id}", response_model=Notebook)
-async def get_notebook(notebook_id: int):
-    return Notebook(id=notebook_id, owner="demo", title="Demo Notebook", items=[{"event": 1}])
+async def get_notebook(notebook_id: int, user: dict = Depends(get_current_user)):
+    row = fetch_one(
+        """
+        SELECT id, owner, title, items, created_at
+        FROM notebooks
+        WHERE id=%s AND owner=%s
+        """,
+        (notebook_id, user.get("sub")),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    return row
 
 
 @app.post("/notebooks", response_model=Notebook)
-async def create_notebook(nb: Notebook):
-    # Placeholder echo endpoint
-    return nb
+async def create_notebook(nb: NotebookCreate, user: dict = Depends(get_current_user)):
+    row = fetch_one(
+        """
+        INSERT INTO notebooks (owner, title, items)
+        VALUES (%s, %s, %s)
+        RETURNING id, owner, title, items, created_at
+        """,
+        (user.get("sub"), nb.title, nb.items),
+    )
+    return row
+
+
+@app.put("/notebooks/{notebook_id}", response_model=Notebook)
+async def update_notebook(
+    notebook_id: int, nb: NotebookUpdate, user: dict = Depends(get_current_user)
+):
+    row = fetch_one(
+        """
+        UPDATE notebooks
+        SET title = COALESCE(%s, title), items = COALESCE(%s, items)
+        WHERE id=%s AND owner=%s
+        RETURNING id, owner, title, items, created_at
+        """,
+        (nb.title, nb.items, notebook_id, user.get("sub")),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    return row
+
+
+@app.get("/notebooks/{notebook_id}/export")
+async def export_notebook(
+    notebook_id: int, fmt: str = Query("md", pattern="^(md|markdown|json|pdf)$"), user: dict = Depends(get_current_user)
+):
+    nb = fetch_one(
+        """
+        SELECT id, owner, title, items, created_at
+        FROM notebooks
+        WHERE id=%s AND owner=%s
+        """,
+        (notebook_id, user.get("sub")),
+    )
+    if not nb:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    if fmt in {"json"}:
+        return JSONResponse(nb)
+    if fmt in {"md", "markdown"}:
+        lines = [f"# {nb['title']}", ""]
+        for item in nb.get("items", []):
+            if isinstance(item, dict) and "event" in item:
+                lines.append(f"- Event {item['event']}")
+            else:
+                lines.append(f"- {item}")
+        return Response("\n".join(lines), media_type="text/markdown")
+    if fmt == "pdf":
+        from io import BytesIO
+        from reportlab.pdfgen import canvas
+
+        buf = BytesIO()
+        c = canvas.Canvas(buf)
+        y = 800
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(40, y, nb["title"])
+        c.setFont("Helvetica", 12)
+        y -= 40
+        for item in nb.get("items", []):
+            text = (
+                f"- Event {item['event']}" if isinstance(item, dict) and "event" in item else f"- {item}"
+            )
+            c.drawString(40, y, text)
+            y -= 20
+        c.showPage()
+        c.save()
+        pdf_bytes = buf.getvalue()
+        buf.close()
+        return Response(content=pdf_bytes, media_type="application/pdf")
+    raise HTTPException(status_code=400, detail="Unsupported format")
 
 
 @app.get("/events/recent")
