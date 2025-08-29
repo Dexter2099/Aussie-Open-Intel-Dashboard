@@ -5,7 +5,7 @@ import structlog
 from structlog.contextvars import bind_contextvars, clear_contextvars
 from fastapi import FastAPI, Query, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import ORJSONResponse, JSONResponse
 from typing import Optional, List
 from datetime import datetime
 
@@ -53,6 +53,15 @@ async def add_context(request: Request, call_next):
         status_code=response.status_code,
     )
     return response
+
+
+@app.exception_handler(Exception)
+async def handle_exceptions(request: Request, exc: Exception):
+    logger.error("unhandled_error", error=str(exc))
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error"},
+    )
 
 
 @app.get("/health")

@@ -114,20 +114,20 @@ def main():
     bind_contextvars(source="ingest", adapter=args.adapter)
 
     def run_once() -> None:
+        started = time.monotonic()
         events, source_name, source_url, source_type = run_adapter(args.adapter, args.feed_url)
         inserted = persist(events, source_name, source_url, source_type)
-        logger.info(
-            "cycle",
+        duration = time.monotonic() - started
+        bind_contextvars(
             events_normalized=len(events),
             events_inserted=inserted,
+            duration_seconds=duration,
         )
+        logger.info("cycle")
 
     if args.loop:
         while True:
-            started = time.monotonic()
             run_once()
-            duration = time.monotonic() - started
-            logger.info("cycle_complete", duration_seconds=duration)
             time.sleep(interval)
     else:
         run_once()
