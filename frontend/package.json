@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview --port 5173 --strictPort"
+    "preview": "vite preview --port 5173 --strictPort",
+    "postinstall": "npx playwright install --with-deps"
   },
   "dependencies": {
     "maplibre-gl": "^4.5.2",
@@ -14,6 +15,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "@vitejs/plugin-react": "^4.3.1",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",

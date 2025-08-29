@@ -41,7 +41,15 @@ jobs:
         working-directory: frontend
         run: |
           npm install
+          npx playwright install --with-deps
           npm run build
+
+      - name: Run Playwright tests
+        working-directory: frontend
+        run: |
+          npm run preview &
+          npx wait-on http://localhost:5173
+          npx playwright test
 
       - name: Build Docker images
         run: |
