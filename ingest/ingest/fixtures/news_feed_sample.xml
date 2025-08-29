@@ -1,0 +1,10 @@
+<rss version="2.0">
+  <channel>
+    <title>Sample News</title>
+    <item>
+      <title>News Item</title>
+      <description>News description</description>
+      <pubDate>Tue, 02 Jan 2024 00:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

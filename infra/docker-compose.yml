@@ -77,6 +77,10 @@ services:
       INGEST_RUN_ON_START: "true"
       FEED_URL: ${FEED_URL}
       INGEST_INTERVAL_SECONDS: ${INGEST_INTERVAL_SECONDS}
+      AIS_FEED_URL: ${AIS_FEED_URL}
+      BUSHFIRE_FEED_URL: ${BUSHFIRE_FEED_URL}
+      CYBER_FEED_URL: ${CYBER_FEED_URL}
+      NEWS_FEED_URL: ${NEWS_FEED_URL}
     command: ["python", "-m", "ingest.run", "--adapter", "${INGEST_ADAPTER:-au_wildfire_fixture}"]
 
   web:

@@ -1,0 +1,12 @@
+{
+  "vessels": [
+    {
+      "mmsi": "123456789",
+      "name": "Test Vessel",
+      "lat": -33.86,
+      "lon": 151.2,
+      "timestamp": "2024-01-01T00:00:00Z",
+      "speed": 12.3
+    }
+  ]
+}

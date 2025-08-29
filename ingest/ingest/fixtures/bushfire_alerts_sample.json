@@ -1,0 +1,13 @@
+{
+  "alerts": [
+    {
+      "title": "Bushfire near Sydney",
+      "description": "Test bushfire",
+      "time": "2024-01-01T01:00:00Z",
+      "lat": -33.9,
+      "lon": 151.2,
+      "severity": 0.7,
+      "state": "NSW"
+    }
+  ]
+}
