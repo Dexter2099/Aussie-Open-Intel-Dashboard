@@ -32,6 +32,13 @@ jobs:
         working-directory: services/api
         run: pytest -q
 
+      - name: Run API integration tests
+        run: |
+          cp .env.example .env
+          docker compose -f infra/docker-compose.yml up -d db redis api
+          pytest services/api/tests/test_integration.py -q
+          docker compose -f infra/docker-compose.yml down -v
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
