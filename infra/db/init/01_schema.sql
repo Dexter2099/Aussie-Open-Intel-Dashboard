@@ -85,4 +85,7 @@ CREATE INDEX IF NOT EXISTS idx_events_geom ON events USING GIST(geom);
 CREATE INDEX IF NOT EXISTS idx_entities_type_name ON entities(type, name);
 CREATE INDEX IF NOT EXISTS idx_event_entities_event ON event_entities(event_id);
 CREATE INDEX IF NOT EXISTS idx_relations_src_dst ON relations(src_entity, dst_entity);
+CREATE INDEX IF NOT EXISTS idx_events_event_type_detected_at ON events(event_type, detected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_events_source_detected_at ON events(source_id, detected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_events_text_search ON events USING GIN (to_tsvector('simple', title || ' ' || coalesce(body,'')));
 
