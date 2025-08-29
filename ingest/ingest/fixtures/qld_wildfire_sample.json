@@ -1,0 +1,27 @@
+{
+  "incidents": [
+    {
+      "id": "QFES-0001",
+      "title": "Grass fire near Toowoomba",
+      "description": "Crews responding to a grass fire near the Warrego Hwy.",
+      "occurred_at": "2025-08-01T04:30:00Z",
+      "lat": -27.5598,
+      "lon": 151.9507,
+      "severity": 0.6,
+      "state": "QLD",
+      "status": "Active"
+    },
+    {
+      "id": "QFES-0002",
+      "name": "Bushfire - containment ongoing",
+      "summary": "Low to moderate fire activity reported.",
+      "occurred_at": "2025-08-01T05:15:00Z",
+      "lat": -26.6500,
+      "lon": 150.1833,
+      "severity": 0.4,
+      "jurisdiction": "QLD",
+      "status": "Monitoring"
+    }
+  ]
+}
+
