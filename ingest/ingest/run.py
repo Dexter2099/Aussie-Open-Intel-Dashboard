@@ -10,6 +10,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from .common.schemas import NormalizedEvent
 from .common import db as dbmod
+from services.etl import fusion
 
 
 def run_adapter(name: str, feed_url: str | None = None) -> Tuple[List[NormalizedEvent], str, str, str]:
@@ -29,59 +30,47 @@ def run_adapter(name: str, feed_url: str | None = None) -> Tuple[List[Normalized
 
 
 def persist(events: List[NormalizedEvent], source_name: str, source_url: str, source_type: str) -> int:
+    """Persist normalised events and derived entities/relations."""
+
     count = 0
     with dbmod.get_conn() as conn:
         with conn.cursor() as cur:
             source_id = dbmod.ensure_source(cur, source_name, source_url, source_type)
             for ev in events:
-                geom_wkt = None
-                if ev.lat is not None and ev.lon is not None:
-                    geom_wkt = f"POINT({ev.lon} {ev.lat})"
-                if geom_wkt:
-                    cur.execute(
-                        """
-                        INSERT INTO events
-                          (source_id, title, body, event_type, occurred_at, detected_at, geom, jurisdiction, confidence, severity)
-                        VALUES
-                          (%s,%s,%s,%s::event_type,%s, now(), ST_GeogFromText(%s), %s, %s, %s)
-                        ON CONFLICT (source_id, title, occurred_at) DO NOTHING
-                        RETURNING id
-                        """,
-                        (
-                            source_id,
-                            ev.title,
-                            ev.body,
-                            ev.event_type,
-                            ev.occurred_at.isoformat() if ev.occurred_at else None,
-                            geom_wkt,
-                            ev.jurisdiction,
-                            ev.confidence,
-                            ev.severity,
-                        ),
-                    )
-                else:
-                    cur.execute(
-                        """
-                        INSERT INTO events
-                          (source_id, title, body, event_type, occurred_at, detected_at, jurisdiction, confidence, severity)
-                        VALUES
-                          (%s,%s,%s,%s::event_type,%s, now(), %s, %s, %s)
-                        ON CONFLICT (source_id, title, occurred_at) DO NOTHING
-                        RETURNING id
-                        """,
-                        (
-                            source_id,
-                            ev.title,
-                            ev.body,
-                            ev.event_type,
-                            ev.occurred_at.isoformat() if ev.occurred_at else None,
-                            ev.jurisdiction,
-                            ev.confidence,
-                            ev.severity,
-                        ),
-                    )
-                if cur.fetchone():
-                    count += 1
+                event_id = dbmod.insert_event(
+                    cur,
+                    source_id=source_id,
+                    title=ev.title,
+                    body=ev.body,
+                    event_type=ev.event_type,
+                    occurred_at=ev.occurred_at.isoformat() if ev.occurred_at else None,
+                    lat=ev.lat,
+                    lon=ev.lon,
+                    jurisdiction=ev.jurisdiction,
+                    confidence=ev.confidence,
+                    severity=ev.severity,
+                )
+
+                # Run ETL pipeline for entity/relationship extraction
+                entities, relations = fusion.process_event({"title": ev.title, "body": ev.body or ""})
+                ent_ids = {}
+                for ent in entities:
+                    attrs = {}
+                    if "lat" in ent and "lon" in ent:
+                        attrs.update({"lat": ent["lat"], "lon": ent["lon"]})
+                    if "jurisdiction" in ent:
+                        attrs["jurisdiction"] = ent["jurisdiction"]
+                    ent_id = dbmod.ensure_entity(cur, ent["type"], ent["name"], attrs)
+                    ent_ids[ent["name"]] = ent_id
+                    dbmod.link_event_entity(cur, event_id, ent_id, "MENTIONS")
+
+                for src_name, dst_name, rel in relations:
+                    src_id = ent_ids.get(src_name)
+                    dst_id = ent_ids.get(dst_name)
+                    if src_id and dst_id:
+                        dbmod.upsert_relation(cur, src_id, dst_id, rel)
+
+                count += 1
         conn.commit()
     return count
 
