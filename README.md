@@ -17,3 +17,10 @@ Structure
 Status
 - Phase 0 skeleton with basic API and infra configuration.
 
+Authentication
+--------------
+The API uses a simple bearer token scheme. Provide an `Authorization: Bearer <token>`
+header on requests. Tokens are not yet validated, but the value is attached to the
+structured log context. Set `ALLOW_ANON=false` in the environment to require this
+header; by default anonymous requests are permitted.
+
