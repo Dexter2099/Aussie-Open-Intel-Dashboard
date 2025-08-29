@@ -70,10 +70,13 @@ services:
     container_name: aoiingest
     depends_on:
       - db
+      - minio
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}
       INGEST_ADAPTER: au_wildfire_fixture
       INGEST_RUN_ON_START: "true"
+      FEED_URL: ${FEED_URL}
+      INGEST_INTERVAL_SECONDS: ${INGEST_INTERVAL_SECONDS}
     command: ["python", "-m", "ingest.run", "--adapter", "${INGEST_ADAPTER:-au_wildfire_fixture}"]
 
   web:

@@ -3,5 +3,5 @@ pydantic==2.9.2
 python-dotenv==1.0.1
 orjson==3.10.7
 tenacity==9.0.0
+minio==7.2.7
 structlog==24.4.0
-

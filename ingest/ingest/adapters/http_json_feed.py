@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from typing import List, Tuple, Any
 from urllib import request
+from ..common import store
 
 from ..common.schemas import RawPayload, NormalizedEvent
 
@@ -17,10 +18,16 @@ def fetch_feed(url: str | None = None) -> RawPayload:
     feed_url = url or os.getenv("FEED_URL")
     if not feed_url:
         raise SystemExit("FEED_URL not set")
-    with request.urlopen(feed_url) as resp:  # nosec - feed url is trusted via env
+    req = request.Request(feed_url, headers={"User-Agent": "AOID-Ingest/1.0"})
+    with request.urlopen(req, timeout=20) as resp:  # nosec - feed url is env-provided
         data = json.load(resp)
-    # write raw payload to stdout
-    print(json.dumps(data))
+
+    # store raw payload in MinIO
+    key = f"{datetime.utcnow().isoformat()}_payload.json"
+    try:
+        store.put_raw("http-json-feed", key, json.dumps(data).encode("utf-8"), "application/json")
+    except Exception as e:
+        logger.warning("Failed to store raw payload: %s", e)
     return RawPayload(source_name=feed_url, fetched_at=datetime.utcnow(), url=feed_url, content=data)
 
 

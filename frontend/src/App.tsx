@@ -29,6 +29,7 @@ export default function App() {
   const [sources, setSources] = useState<{id:number; name:string; type?:string}[]>([])
   const [sourceId, setSourceId] = useState<number | ''>('')
   const initialBboxRef = useRef<string | null>(null)
+  const [stats, setStats] = useState<{total:number; counts_by_type:any[]; counts_by_source:any[]}>({ total: 0, counts_by_type: [], counts_by_source: [] })
 
   const sourceColors = useMemo(() => {
     const palette = ['#e57373', '#64b5f6', '#81c784', '#ffb74d', '#ba68c8', '#4db6ac', '#9575cd', '#dce775', '#ff8a65', '#a1887f']
@@ -102,11 +103,14 @@ export default function App() {
       if (sourceId !== '') params.set('source_id', String(sourceId))
       const urlGeo = `${API_BASE}/events/geojson?${params.toString()}`
       const urlList = `${API_BASE}/search?${params.toString()}`
-      const [resGeo, resList] = await Promise.all([fetch(urlGeo), fetch(urlList)])
+      const urlStats = `${API_BASE}/stats/summary?${params.toString()}`
+      const [resGeo, resList, resStats] = await Promise.all([fetch(urlGeo), fetch(urlList), fetch(urlStats)])
       const data: FC = await resGeo.json()
       const list = await resList.json()
+      const s = await resStats.json()
       setCount(data.count)
       setResults(list.results || [])
+      setStats(s)
       upsertGeoJSON(data)
 
       // Sync URL (avoid stacking history)
@@ -185,7 +189,12 @@ export default function App() {
       if (!f) return
       const coords = (f.geometry as any).coordinates.slice()
       const p = f.properties as any
-      const html = `<strong>${p.title ?? 'Event'}</strong><br/>${p.event_type ?? ''}<br/>Detected: ${p.detected_at ?? ''}`
+      const html = `<strong>${p.title ?? 'Event'}</strong>`+
+        `<br/>${p.event_type ?? ''}`+
+        (p.source_name ? `<br/>Source: ${p.source_name}` : '')+
+        `<br/>Detected: ${p.detected_at ?? ''}`+
+        (p.severity != null ? `<br/>Severity: ${p.severity}` : '')+
+        (p.confidence != null ? `<br/>Confidence: ${p.confidence}` : '')
       new maplibregl.Popup().setLngLat(coords).setHTML(html).addTo(map)
       const id = Number(p.id)
       setSelectedId(id)
@@ -205,6 +214,17 @@ export default function App() {
     setTimeRange(`${start.toISOString()}..${end.toISOString()}`)
   }
 
+  // Update selected ring highlight when selection changes
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (map.getLayer('events-selected')) {
+      const id = selectedId ?? -1
+      // @ts-ignore setFilter exists
+      map.setFilter('events-selected', ['==', ['get', 'id'], id])
+    }
+  }, [selectedId])
+
   return (
     <div style={{ display: 'grid', gridTemplateRows: '48px 1fr', height: '100%' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #eee' }}>
@@ -223,6 +243,21 @@ export default function App() {
         </div>
         <button onClick={onRefreshClick} disabled={loading} style={{ padding: '6px 10px' }}>{loading ? 'Loading…' : 'Refresh'}</button>
         <span style={{ marginLeft: 'auto', opacity: 0.7 }}>{count} on map</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 16 }}>
+          <span style={{ fontSize: 12, opacity: 0.8 }}>Legend:</span>
+          <span style={{ width: 10, height: 10, background: '#4fc3f7', borderRadius: 9999 }} />
+          <span style={{ fontSize: 12 }}>low</span>
+          <span style={{ width: 10, height: 10, background: '#ffb74d', borderRadius: 9999 }} />
+          <span style={{ fontSize: 12 }}>med</span>
+          <span style={{ width: 10, height: 10, background: '#ef5350', borderRadius: 9999 }} />
+          <span style={{ fontSize: 12 }}>high</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 16 }}>
+          <span style={{ fontSize: 12, opacity: 0.8 }}>Total: {stats.total}</span>
+          {stats.counts_by_type?.slice(0,4).map((t:any) => (
+            <span key={t.event_type} style={{ fontSize: 12, background: '#f5f5f5', padding: '2px 6px', borderRadius: 4 }}>{t.event_type}: {t.c}</span>
+          ))}
+        </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', minHeight: 0 }}>
         <div style={{ borderRight: '1px solid #eee', overflow: 'auto' }}>
@@ -237,7 +272,12 @@ export default function App() {
                     setSelectedId(r.id)
                     if (r.lon != null && r.lat != null && mapRef.current) {
                       mapRef.current.easeTo({ center: [r.lon, r.lat], zoom: Math.max(mapRef.current.getZoom(), 8) })
-                      const html = `<strong>${r.title ?? 'Event'}</strong><br/>${r.event_type ?? ''}<br/>Detected: ${r.detected_at ?? ''}`
+                      const html = `<strong>${r.title ?? 'Event'}</strong>`+
+                        `<br/>${r.event_type ?? ''}`+
+                        (r.source_name ? `<br/>Source: ${r.source_name}` : '')+
+                        `<br/>Detected: ${r.detected_at ?? ''}`+
+                        (r.severity != null ? `<br/>Severity: ${r.severity}` : '')+
+                        (r.confidence != null ? `<br/>Confidence: ${r.confidence}` : '')
                       new maplibregl.Popup().setLngLat([r.lon, r.lat]).setHTML(html).addTo(mapRef.current)
                     }
                     const sp = new URLSearchParams(window.location.search)

@@ -78,6 +78,7 @@ async def search(
     offset: int = 0,
     sort: str = "detected_at",
     source_id: Optional[int] = None,
+    debug: int = 0,
 ):
     params: List = []
     clauses: List[str] = []
@@ -134,10 +135,11 @@ async def search(
     clamped_offset = max(0, int(offset or 0))
     sort_col = "detected_at" if (sort not in {"detected_at", "occurred_at"}) else sort
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    geom_debug = ", CASE WHEN e.geom IS NOT NULL THEN ST_AsText(e.geom::geometry) END AS geom_wkt" if debug else ""
     sql = f"""
         SELECT e.id, e.source_id, s.name AS source_name, e.title, e.body, e.event_type, e.occurred_at, e.detected_at, e.jurisdiction, e.confidence, e.severity,
                CASE WHEN e.geom IS NOT NULL THEN ST_X(e.geom::geometry) END AS lon,
-               CASE WHEN e.geom IS NOT NULL THEN ST_Y(e.geom::geometry) END AS lat
+               CASE WHEN e.geom IS NOT NULL THEN ST_Y(e.geom::geometry) END AS lat{geom_debug}
         FROM events e
         LEFT JOIN sources s ON s.id = e.source_id
         {where}
@@ -219,7 +221,7 @@ async def create_notebook(nb: Notebook):
 
 
 @app.get("/events/recent")
-async def recent_events(limit: int = 50, offset: int = 0, sort: str = "detected_at", source_id: Optional[int] = None):
+async def recent_events(limit: int = 50, offset: int = 0, sort: str = "detected_at", source_id: Optional[int] = None, debug: int = 0):
     clamped = max(1, min(int(limit or 50), 200))
     clamped_offset = max(0, int(offset or 0))
     sort_col = "detected_at" if (sort not in {"detected_at", "occurred_at"}) else sort
@@ -229,12 +231,13 @@ async def recent_events(limit: int = 50, offset: int = 0, sort: str = "detected_
         clauses.append("e.source_id = %s")
         params.append(int(source_id))
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    geom_debug = ", CASE WHEN e.geom IS NOT NULL THEN ST_AsText(e.geom::geometry) END AS geom_wkt" if debug else ""
     rows = fetch_all(
         f"""
         SELECT e.id, e.source_id, s.name AS source_name, e.title, e.body, e.event_type, e.occurred_at, e.detected_at,
                e.jurisdiction, e.confidence, e.severity,
                CASE WHEN e.geom IS NOT NULL THEN ST_X(e.geom::geometry) END AS lon,
-               CASE WHEN e.geom IS NOT NULL THEN ST_Y(e.geom::geometry) END AS lat
+               CASE WHEN e.geom IS NOT NULL THEN ST_Y(e.geom::geometry) END AS lat{geom_debug}
         FROM events e
         LEFT JOIN sources s ON s.id = e.source_id
         {where}
@@ -245,6 +248,62 @@ async def recent_events(limit: int = 50, offset: int = 0, sort: str = "detected_
         params + [clamped_offset, clamped],
     )
     return {"results": rows, "limit": clamped, "offset": clamped_offset, "sort": sort_col}
+
+
+@app.get("/stats/summary")
+async def stats_summary(q: Optional[str] = None, bbox: Optional[str] = None, time_range: Optional[str] = None, source_id: Optional[int] = None):
+    params: List = []
+    clauses: List[str] = []
+
+    if q:
+        clauses.append("(title ILIKE %s OR body ILIKE %s)")
+        like = f"%{q}%"
+        params.extend([like, like])
+
+    if time_range:
+        try:
+            start_s, end_s = time_range.split("..", 1)
+        except ValueError:
+            start_s, end_s = time_range, ""
+        def _parse(ts: str | None):
+            if not ts:
+                return None
+            ts = ts.strip()
+            if not ts:
+                return None
+            if ts.endswith("Z"):
+                ts = ts.replace("Z", "+00:00")
+            try:
+                return datetime.fromisoformat(ts)
+            except Exception:
+                return None
+        start_dt = _parse(start_s)
+        end_dt = _parse(end_s)
+        if start_dt:
+            clauses.append("detected_at >= %s")
+            params.append(start_dt)
+        if end_dt:
+            clauses.append("detected_at <= %s")
+            params.append(end_dt)
+
+    if bbox:
+        try:
+            minlon, minlat, maxlon, maxlat = [float(x) for x in bbox.split(",")]
+            clauses.append("geom IS NOT NULL AND ST_Intersects(geom, geography(ST_MakeEnvelope(%s,%s,%s,%s,4326)))")
+            params.extend([minlon, minlat, maxlon, maxlat])
+        except Exception:
+            pass
+
+    if source_id:
+        clauses.append("source_id = %s")
+        params.append(int(source_id))
+
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+
+    total = fetch_all(f"SELECT count(*) AS c FROM events {where}", params)[0]["c"] if True else 0
+    by_type = fetch_all(f"SELECT event_type, count(*) AS c FROM events {where} GROUP BY event_type ORDER BY c DESC", params)
+    by_source = fetch_all(f"SELECT s.name AS source_name, count(*) AS c FROM events e LEFT JOIN sources s ON s.id=e.source_id {where.replace(' WHERE ',' WHERE ')} GROUP BY s.name ORDER BY c DESC", params)
+    return {"total": total, "counts_by_type": by_type, "counts_by_source": by_source}
 
 
 @app.get("/events/geojson")
