@@ -49,7 +49,17 @@ def normalize(raw: RawPayload) -> List[NormalizedEvent]:
                     break
                 except Exception:
                     continue
-        events.append(NormalizedEvent(title=title, body=body, event_type="Cybersecurity", occurred_at=occurred_dt))
+        # ACSC advisories represent cybersecurity incidents.  The project uses a
+        # short ``Cyber`` event_type to categorise them consistently with other
+        # feeds.
+        events.append(
+            NormalizedEvent(
+                title=title,
+                body=body,
+                event_type="Cyber",
+                occurred_at=occurred_dt,
+            )
+        )
     return events
 
 
