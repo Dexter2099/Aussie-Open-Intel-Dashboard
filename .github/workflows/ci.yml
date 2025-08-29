@@ -1,60 +1,51 @@
 name: CI
 
 on:
+  push:
+    branches: [ main ]
   pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  api-tests-and-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: services/api/requirements.txt
 
-      - name: Install API dependencies
-        run: pip install -r services/api/requirements.txt pytest
-
-      - name: Run API unit tests
+      - name: Install API deps and pytest
         working-directory: services/api
-        run: pytest
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
 
-      - name: Build API image
-        run: docker build -t aoiapi services/api
+      - name: Run API unit tests (mocked DB)
+        working-directory: services/api
+        run: pytest -q
 
-      - name: Build ingest image
-        run: docker build -t aoiingest ingest
-
-      - name: Setup Node
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-
-      - name: Cache node modules
-        uses: actions/cache@v3
-        with:
-          path: frontend/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: Install frontend deps
-        working-directory: frontend
-        run: npm install
+          node-version: '20'
 
       - name: Build frontend
         working-directory: frontend
-        run: npm run build
+        run: |
+          npm install
+          npm run build
 
-      - name: Upload frontend artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist
+      - name: Build Docker images
+        run: |
+          docker build -t aoi-api -f services/api/Dockerfile services/api
+          docker build -t aoi-ingest -f ingest/Dockerfile ingest
+          docker build -t aoi-web -f frontend/Dockerfile frontend
 
-      - name: Build web image
-        run: docker build -t aoiweb frontend
