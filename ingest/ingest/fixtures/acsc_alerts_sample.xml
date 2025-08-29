@@ -1,0 +1,10 @@
+<rss version="2.0">
+  <channel>
+    <title>ACSC Alerts</title>
+    <item>
+      <title>Test ACSC Advisory</title>
+      <description>Example advisory description</description>
+      <pubDate>Tue, 02 Jan 2024 00:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>
