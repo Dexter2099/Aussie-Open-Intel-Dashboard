@@ -32,6 +32,7 @@ async def search(
     limit: int = 50,
     offset: int = 0,
     sort: str = "detected_at",
+    source_id: Optional[int] = None,
 ):
     params: List = []
     clauses: List[str] = []
@@ -78,6 +79,11 @@ async def search(
             params.extend([minlon, minlat, maxlon, maxlat])
         except Exception:
             pass
+
+    # Source filter
+    if source_id:
+        clauses.append("source_id = %s")
+        params.append(int(source_id))
 
     clamped_limit = max(1, min(int(limit or 50), 500))
     clamped_offset = max(0, int(offset or 0))
@@ -168,10 +174,16 @@ async def create_notebook(nb: Notebook):
 
 
 @app.get("/events/recent")
-async def recent_events(limit: int = 50, offset: int = 0, sort: str = "detected_at"):
+async def recent_events(limit: int = 50, offset: int = 0, sort: str = "detected_at", source_id: Optional[int] = None):
     clamped = max(1, min(int(limit or 50), 200))
     clamped_offset = max(0, int(offset or 0))
     sort_col = "detected_at" if (sort not in {"detected_at", "occurred_at"}) else sort
+    clauses: List[str] = []
+    params: List = []
+    if source_id:
+        clauses.append("e.source_id = %s")
+        params.append(int(source_id))
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     rows = fetch_all(
         f"""
         SELECT e.id, e.source_id, s.name AS source_name, e.title, e.body, e.event_type, e.occurred_at, e.detected_at,
@@ -180,17 +192,18 @@ async def recent_events(limit: int = 50, offset: int = 0, sort: str = "detected_
                CASE WHEN e.geom IS NOT NULL THEN ST_Y(e.geom::geometry) END AS lat
         FROM events e
         LEFT JOIN sources s ON s.id = e.source_id
+        {where}
         ORDER BY {sort_col} DESC
         OFFSET %s
         LIMIT %s
         """,
-        (clamped_offset, clamped),
+        params + [clamped_offset, clamped],
     )
     return {"results": rows, "limit": clamped, "offset": clamped_offset, "sort": sort_col}
 
 
 @app.get("/events/geojson")
-async def events_geojson(q: Optional[str] = None, bbox: Optional[str] = None, time_range: Optional[str] = None, limit: int = 500):
+async def events_geojson(q: Optional[str] = None, bbox: Optional[str] = None, time_range: Optional[str] = None, limit: int = 500, source_id: Optional[int] = None):
     params: List = []
     clauses: List[str] = ["geom IS NOT NULL"]
 
@@ -232,6 +245,10 @@ async def events_geojson(q: Optional[str] = None, bbox: Optional[str] = None, ti
             params.extend([minlon, minlat, maxlon, maxlat])
         except Exception:
             pass
+
+    if source_id:
+        clauses.append("e.source_id = %s")
+        params.append(int(source_id))
 
     clamped = max(1, min(int(limit or 500), 1000))
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""

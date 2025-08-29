@@ -25,6 +25,8 @@ export default function App() {
   const [count, setCount] = useState(0)
   const [results, setResults] = useState<any[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [sources, setSources] = useState<{id:number; name:string; type?:string}[]>([])
+  const [sourceId, setSourceId] = useState<number | ''>('')
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -38,6 +40,8 @@ export default function App() {
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
     mapRef.current = map
     map.on('load', () => {
+      // fetch sources
+      fetch(`${API_BASE}/sources`).then(r => r.json()).then(data => setSources(data.results || [])).catch(console.error)
       refresh()
     })
     map.on('moveend', () => {
@@ -61,6 +65,7 @@ export default function App() {
       params.set('limit', '1000')
       if (q) params.set('q', q)
       if (timeRange) params.set('time_range', timeRange)
+      if (sourceId) params.set('source_id', String(sourceId))
       const urlGeo = `${API_BASE}/events/geojson?${params.toString()}`
       const urlList = `${API_BASE}/search?${params.toString()}`
       const [resGeo, resList] = await Promise.all([fetch(urlGeo), fetch(urlList)])
@@ -138,12 +143,28 @@ export default function App() {
 
   const onRefreshClick = () => refresh()
 
+  const setQuickRange = (hours: number) => {
+    const end = new Date()
+    const start = new Date(end.getTime() - hours * 3600 * 1000)
+    setTimeRange(`${start.toISOString()}..${end.toISOString()}`)
+  }
+
   return (
     <div style={{ display: 'grid', gridTemplateRows: '48px 1fr', height: '100%' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #eee' }}>
         <strong style={{ marginRight: 8 }}>Aussie Open Intel</strong>
         <input placeholder="Search text (q)" value={q} onChange={(e) => setQ(e.target.value)} style={{ padding: 6, minWidth: 220 }} />
         <input placeholder="Time range (start..end)" value={timeRange} onChange={(e) => setTimeRange(e.target.value)} style={{ padding: 6, minWidth: 240 }} />
+        <select value={sourceId} onChange={(e) => setSourceId(e.target.value ? Number(e.target.value) : '')} style={{ padding: 6 }}>
+          <option value="">All sources</option>
+          {sources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+        <div style={{ display: 'flex', gap: 4, marginLeft: 8 }}>
+          <button onClick={() => setQuickRange(3)} style={{ padding: '6px 8px' }}>Last 3h</button>
+          <button onClick={() => setQuickRange(12)} style={{ padding: '6px 8px' }}>12h</button>
+          <button onClick={() => setQuickRange(24)} style={{ padding: '6px 8px' }}>24h</button>
+          <button onClick={() => setQuickRange(24*7)} style={{ padding: '6px 8px' }}>7d</button>
+        </div>
         <button onClick={onRefreshClick} disabled={loading} style={{ padding: '6px 10px' }}>{loading ? 'Loading…' : 'Refresh'}</button>
         <span style={{ marginLeft: 'auto', opacity: 0.7 }}>{count} on map</span>
       </div>
@@ -171,9 +192,8 @@ export default function App() {
                     background: isSel ? '#e3f2fd' : 'transparent'
                   }}>
                   <div style={{ fontWeight: 600, marginBottom: 4 }}>{r.title || 'Event'}</div>
-                  <div style={{ fontSize: 12, color: '#666' }}>
-                    {r.event_type} • {r.detected_at?.replace('T', ' ').replace('Z','')} {r.jurisdiction ? `• ${r.jurisdiction}` : ''}
-                  </div>
+                  <div style={{ fontSize: 12, color: '#666' }}>{r.event_type} • {r.source_name || 'Unknown source'}</div>
+                  <div style={{ fontSize: 12, color: '#666' }}>{r.detected_at?.replace('T', ' ').replace('Z','')} {r.jurisdiction ? `• ${r.jurisdiction}` : ''}</div>
                 </div>
               )
             })}
