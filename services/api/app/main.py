@@ -108,7 +108,7 @@ async def search(
     }
 
 
-@app.get("/events/{event_id}")
+@app.get("/events/{event_id:int}")
 async def get_event(event_id: int, debug_geom: int = 0):
     if debug_geom:
         row = fetch_one(
