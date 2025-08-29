@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS events (
   geom geography,
   jurisdiction TEXT,
   confidence REAL,
-  severity REAL
+  severity REAL,
+  UNIQUE (source_id, title, occurred_at)
 );
 
 CREATE TYPE entity_type AS ENUM (
