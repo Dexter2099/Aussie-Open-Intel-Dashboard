@@ -6,5 +6,7 @@ __all__ = [
     "cyber_advisories",
     "acsc_adapter",
     "news_feed",
+    "bom",
+    "qfes",
 ]
 
