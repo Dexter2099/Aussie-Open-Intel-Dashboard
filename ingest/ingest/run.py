@@ -21,6 +21,22 @@ def run_adapter(name: str, feed_url: str | None = None) -> Tuple[List[Normalized
         from .adapters import http_json_feed as adapter
         raw = adapter.fetch_feed(feed_url)
         source_name, source_url, source_type = adapter.get_source_meta(feed_url)
+    elif name == "ais":
+        from .adapters import ais as adapter
+        raw = adapter.fetch_feed(feed_url)
+        source_name, source_url, source_type = adapter.get_source_meta(feed_url)
+    elif name == "bushfire_alerts":
+        from .adapters import bushfire_alerts as adapter
+        raw = adapter.fetch_feed(feed_url)
+        source_name, source_url, source_type = adapter.get_source_meta(feed_url)
+    elif name == "cyber_advisories":
+        from .adapters import cyber_advisories as adapter
+        raw = adapter.fetch_feed(feed_url)
+        source_name, source_url, source_type = adapter.get_source_meta(feed_url)
+    elif name == "news_feed":
+        from .adapters import news_feed as adapter
+        raw = adapter.fetch_feed(feed_url)
+        source_name, source_url, source_type = adapter.get_source_meta(feed_url)
     else:
         raise SystemExit(f"Unknown adapter: {name}")
 

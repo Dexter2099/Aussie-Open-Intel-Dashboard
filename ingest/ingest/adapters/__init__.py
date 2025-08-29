@@ -1,2 +1,9 @@
-__all__ = []
+__all__ = [
+    "au_wildfire_fixture",
+    "http_json_feed",
+    "ais",
+    "bushfire_alerts",
+    "cyber_advisories",
+    "news_feed",
+]
 

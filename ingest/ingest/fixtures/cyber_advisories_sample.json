@@ -1,0 +1,10 @@
+{
+  "advisories": [
+    {
+      "title": "CVE-2024-1234",
+      "summary": "Test vulnerability",
+      "published": "2024-01-02T00:00:00Z",
+      "severity": 5.0
+    }
+  ]
+}
