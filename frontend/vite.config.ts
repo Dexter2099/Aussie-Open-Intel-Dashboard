@@ -5,7 +5,13 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    strictPort: true
+    strictPort: true,
+    proxy: {
+      '/api': {
+        target: 'http://api:8000',
+        changeOrigin: true
+      }
+    }
   },
   test: {
     environment: 'jsdom',
