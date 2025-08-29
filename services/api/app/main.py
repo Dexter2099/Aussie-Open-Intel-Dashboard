@@ -1,4 +1,9 @@
-from fastapi import FastAPI, Query, HTTPException
+import logging
+from uuid import uuid4
+
+import structlog
+from structlog.contextvars import bind_contextvars, clear_contextvars
+from fastapi import FastAPI, Query, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from typing import Optional, List
@@ -6,8 +11,24 @@ from datetime import datetime
 
 from .schemas import Event, Entity, Notebook, SearchQuery
 from .db import fetch_all, fetch_one
+from .auth import get_current_user
 
-app = FastAPI(title="Aussie Open Intelligence API", default_response_class=ORJSONResponse)
+logging.basicConfig(level=logging.INFO)
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.JSONRenderer(),
+    ]
+)
+logger = structlog.get_logger()
+
+app = FastAPI(
+    title="Aussie Open Intelligence API",
+    default_response_class=ORJSONResponse,
+    dependencies=[Depends(get_current_user)],
+)
 
 # Permissive CORS for early development; tighten later
 app.add_middleware(
@@ -17,6 +38,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_context(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID", str(uuid4()))
+    clear_contextvars()
+    bind_contextvars(request_id=request_id, source="api")
+    response = await call_next(request)
+    logger.info(
+        "request",
+        path=request.url.path,
+        method=request.method,
+        status_code=response.status_code,
+    )
+    return response
 
 
 @app.get("/health")
@@ -108,7 +144,7 @@ async def search(
     }
 
 
-@app.get("/events/{event_id}")
+@app.get("/events/{event_id:int}")
 async def get_event(event_id: int, debug_geom: int = 0):
     if debug_geom:
         row = fetch_one(

@@ -1,8 +1,12 @@
 import argparse
+import logging
 import os
 import time
 from datetime import datetime
 from typing import List, Tuple
+
+import structlog
+from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from .common.schemas import NormalizedEvent
 from .common import db as dbmod
@@ -93,26 +97,37 @@ def main():
     parser.add_argument("--feed-url", default=os.getenv("FEED_URL"), help="Override feed URL")
     args = parser.parse_args()
 
+    logging.basicConfig(level=logging.INFO)
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.JSONRenderer(),
+        ]
+    )
+    logger = structlog.get_logger()
+
     interval = int(os.getenv("INGEST_INTERVAL_SECONDS", "300"))
+
+    clear_contextvars()
+    bind_contextvars(source="ingest", adapter=args.adapter)
 
     def run_once() -> None:
         events, source_name, source_url, source_type = run_adapter(args.adapter, args.feed_url)
         inserted = persist(events, source_name, source_url, source_type)
-        print(
-            {
-                "adapter": args.adapter,
-                "fetched_at": datetime.utcnow().isoformat(),
-                "events_normalized": len(events),
-                "events_inserted": inserted,
-            }
+        logger.info(
+            "cycle",
+            events_normalized=len(events),
+            events_inserted=inserted,
         )
 
     if args.loop:
         while True:
-            started = datetime.utcnow()
+            started = time.monotonic()
             run_once()
-            duration = (datetime.utcnow() - started).total_seconds()
-            print({"cycle_complete": datetime.utcnow().isoformat(), "duration_seconds": duration})
+            duration = time.monotonic() - started
+            logger.info("cycle_complete", duration_seconds=duration)
             time.sleep(interval)
     else:
         run_once()
