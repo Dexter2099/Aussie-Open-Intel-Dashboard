@@ -25,7 +25,14 @@ async def health():
 
 
 @app.get("/search")
-async def search(q: Optional[str] = None, bbox: Optional[str] = None, time_range: Optional[str] = None, limit: int = 50):
+async def search(
+    q: Optional[str] = None,
+    bbox: Optional[str] = None,
+    time_range: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    sort: str = "detected_at",
+):
     params: List = []
     clauses: List[str] = []
 
@@ -73,33 +80,57 @@ async def search(q: Optional[str] = None, bbox: Optional[str] = None, time_range
             pass
 
     clamped_limit = max(1, min(int(limit or 50), 500))
+    clamped_offset = max(0, int(offset or 0))
+    sort_col = "detected_at" if (sort not in {"detected_at", "occurred_at"}) else sort
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     sql = f"""
-        SELECT id, source_id, title, body, event_type, occurred_at, detected_at, jurisdiction, confidence, severity,
-               CASE WHEN geom IS NOT NULL THEN ST_X(geom::geometry) END AS lon,
-               CASE WHEN geom IS NOT NULL THEN ST_Y(geom::geometry) END AS lat
-        FROM events
+        SELECT e.id, e.source_id, s.name AS source_name, e.title, e.body, e.event_type, e.occurred_at, e.detected_at, e.jurisdiction, e.confidence, e.severity,
+               CASE WHEN e.geom IS NOT NULL THEN ST_X(e.geom::geometry) END AS lon,
+               CASE WHEN e.geom IS NOT NULL THEN ST_Y(e.geom::geometry) END AS lat
+        FROM events e
+        LEFT JOIN sources s ON s.id = e.source_id
         {where}
-        ORDER BY detected_at DESC
+        ORDER BY {sort_col} DESC
+        OFFSET %s
         LIMIT %s
     """
-    params.append(clamped_limit)
+    params.extend([clamped_offset, clamped_limit])
     rows = fetch_all(sql, params)
     return {
-        "query": {"q": q, "bbox": bbox, "time_range": time_range, "limit": clamped_limit},
+        "query": {"q": q, "bbox": bbox, "time_range": time_range, "limit": clamped_limit, "offset": clamped_offset, "sort": sort_col},
         "results": rows,
     }
 
 
 @app.get("/events/{event_id}")
-async def get_event(event_id: int):
-    row = fetch_one(
-        """
-        SELECT id, source_id, title, body, event_type, occurred_at, detected_at, jurisdiction, confidence, severity
-        FROM events WHERE id=%s
-        """,
-        (event_id,),
-    )
+async def get_event(event_id: int, debug_geom: int = 0):
+    if debug_geom:
+        row = fetch_one(
+            """
+            SELECT e.id, e.source_id, s.name AS source_name, e.title, e.body, e.event_type, e.occurred_at, e.detected_at,
+                   e.jurisdiction, e.confidence, e.severity,
+                   CASE WHEN e.geom IS NOT NULL THEN ST_X(e.geom::geometry) END AS lon,
+                   CASE WHEN e.geom IS NOT NULL THEN ST_Y(e.geom::geometry) END AS lat,
+                   CASE WHEN e.geom IS NOT NULL THEN ST_AsText(e.geom::geometry) END AS geom_wkt
+            FROM events e
+            LEFT JOIN sources s ON s.id = e.source_id
+            WHERE e.id=%s
+            """,
+            (event_id,),
+        )
+    else:
+        row = fetch_one(
+            """
+            SELECT e.id, e.source_id, s.name AS source_name, e.title, e.body, e.event_type, e.occurred_at, e.detected_at,
+                   e.jurisdiction, e.confidence, e.severity,
+                   CASE WHEN e.geom IS NOT NULL THEN ST_X(e.geom::geometry) END AS lon,
+                   CASE WHEN e.geom IS NOT NULL THEN ST_Y(e.geom::geometry) END AS lat
+            FROM events e
+            LEFT JOIN sources s ON s.id = e.source_id
+            WHERE e.id=%s
+            """,
+            (event_id,),
+        )
     if not row:
         raise HTTPException(status_code=404, detail="Event not found")
     return row
@@ -137,20 +168,25 @@ async def create_notebook(nb: Notebook):
 
 
 @app.get("/events/recent")
-async def recent_events(limit: int = 50):
+async def recent_events(limit: int = 50, offset: int = 0, sort: str = "detected_at"):
     clamped = max(1, min(int(limit or 50), 200))
+    clamped_offset = max(0, int(offset or 0))
+    sort_col = "detected_at" if (sort not in {"detected_at", "occurred_at"}) else sort
     rows = fetch_all(
-        """
-        SELECT id, source_id, title, body, event_type, occurred_at, detected_at, jurisdiction, confidence, severity,
-               CASE WHEN geom IS NOT NULL THEN ST_X(geom::geometry) END AS lon,
-               CASE WHEN geom IS NOT NULL THEN ST_Y(geom::geometry) END AS lat
-        FROM events
-        ORDER BY detected_at DESC
+        f"""
+        SELECT e.id, e.source_id, s.name AS source_name, e.title, e.body, e.event_type, e.occurred_at, e.detected_at,
+               e.jurisdiction, e.confidence, e.severity,
+               CASE WHEN e.geom IS NOT NULL THEN ST_X(e.geom::geometry) END AS lon,
+               CASE WHEN e.geom IS NOT NULL THEN ST_Y(e.geom::geometry) END AS lat
+        FROM events e
+        LEFT JOIN sources s ON s.id = e.source_id
+        ORDER BY {sort_col} DESC
+        OFFSET %s
         LIMIT %s
         """,
-        (clamped,),
+        (clamped_offset, clamped),
     )
-    return {"results": rows, "limit": clamped}
+    return {"results": rows, "limit": clamped, "offset": clamped_offset, "sort": sort_col}
 
 
 @app.get("/events/geojson")
@@ -201,10 +237,12 @@ async def events_geojson(q: Optional[str] = None, bbox: Optional[str] = None, ti
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     rows = fetch_all(
         f"""
-        SELECT id, title, body, event_type, occurred_at, detected_at,
-               ST_X(geom::geometry) AS lon, ST_Y(geom::geometry) AS lat,
-               jurisdiction, confidence, severity
-        FROM events
+        SELECT e.id, e.title, e.body, e.event_type, e.occurred_at, e.detected_at,
+               ST_X(e.geom::geometry) AS lon, ST_Y(e.geom::geometry) AS lat,
+               e.jurisdiction, e.confidence, e.severity,
+               s.name AS source_name
+        FROM events e
+        LEFT JOIN sources s ON s.id = e.source_id
         {where}
         ORDER BY detected_at DESC
         LIMIT %s
@@ -227,3 +265,15 @@ async def events_geojson(q: Optional[str] = None, bbox: Optional[str] = None, ti
         )
 
     return {"type": "FeatureCollection", "features": features, "count": len(features)}
+
+
+@app.get("/sources")
+async def list_sources():
+    rows = fetch_all(
+        """
+        SELECT id, name, type
+        FROM sources
+        ORDER BY name ASC
+        """
+    )
+    return {"results": rows, "count": len(rows)}
