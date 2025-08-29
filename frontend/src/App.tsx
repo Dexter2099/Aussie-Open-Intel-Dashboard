@@ -1,6 +1,8 @@
 import 'maplibre-gl/dist/maplibre-gl.css'
 import maplibregl, { Map as MlMap } from 'maplibre-gl'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import Timeline from './components/Timeline'
+import ForceGraph from './components/ForceGraph'
 import './App.css'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
@@ -30,6 +32,7 @@ export default function App() {
   const [sourceId, setSourceId] = useState<number | ''>('')
   const initialBboxRef = useRef<string | null>(null)
   const [stats, setStats] = useState<{total:number; counts_by_type:any[]; counts_by_source:any[]}>({ total: 0, counts_by_type: [], counts_by_source: [] })
+  const [view, setView] = useState<'map' | 'timeline' | 'graph'>('map')
 
   const sourceColors = useMemo(() => {
     const palette = ['#e57373', '#64b5f6', '#81c784', '#ffb74d', '#ba68c8', '#4db6ac', '#9575cd', '#dce775', '#ff8a65', '#a1887f']
@@ -259,6 +262,11 @@ export default function App() {
         </div>
         <button onClick={onRefreshClick} disabled={loading} style={{ padding: '6px 10px' }}>{loading ? 'Loading…' : 'Refresh'}</button>
         <span style={{ marginLeft: 'auto', opacity: 0.7 }}>{count} on map</span>
+        <div style={{ display: 'flex', gap: 6, marginLeft: 12 }}>
+          <button aria-label="Map view" onClick={() => setView('map')} style={{ padding: '6px 8px', background: view==='map'? '#e3f2fd':'#f5f5f5' }}>Map</button>
+          <button aria-label="Timeline view" onClick={() => setView('timeline')} style={{ padding: '6px 8px', background: view==='timeline'? '#e3f2fd':'#f5f5f5' }}>Timeline</button>
+          <button aria-label="Graph view" onClick={() => setView('graph')} style={{ padding: '6px 8px', background: view==='graph'? '#e3f2fd':'#f5f5f5' }}>Graph</button>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 16 }}>
           <span style={{ fontSize: 12, opacity: 0.8 }}>Legend:</span>
           <span style={{ width: 10, height: 10, background: '#4fc3f7', borderRadius: 9999 }} />
@@ -275,6 +283,7 @@ export default function App() {
           ))}
         </div>
       </div>
+      {view === 'map' && (
       <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', minHeight: 0 }}>
         <div style={{ borderRight: '1px solid #eee', overflow: 'auto' }}>
           <div style={{ padding: '8px 12px', borderBottom: '1px solid #f2f2f2', fontWeight: 600 }}>Results ({results.length})</div>
@@ -337,6 +346,16 @@ export default function App() {
         </div>
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
       </div>
+      )}
+      {view === 'timeline' && (
+        <Timeline apiBase={API_BASE} q={q} timeRange={timeRange} sourceId={sourceId} />
+      )}
+      {view === 'graph' && (
+        <div style={{ padding: 12 }}>
+          <ForceGraph apiBase={API_BASE} />
+        </div>
+      )}
     </div>
   )
 }
+

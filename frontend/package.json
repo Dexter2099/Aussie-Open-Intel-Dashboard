@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --port 5173 --strictPort",
-    "postinstall": "npx playwright install --with-deps"
+    "postinstall": "npx playwright install --with-deps",
+    "test": "vitest run"
   },
   "dependencies": {
     "maplibre-gl": "^4.5.2",
@@ -16,10 +17,14 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.0.1",
     "@vitejs/plugin-react": "^4.3.1",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
+    "jsdom": "^25.0.0",
     "typescript": "^5.5.4",
-    "vite": "^5.4.2"
+    "vite": "^5.4.2",
+    "vitest": "^2.1.1"
   }
 }
