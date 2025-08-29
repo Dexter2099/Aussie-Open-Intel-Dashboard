@@ -1,6 +1,6 @@
 COMPOSE=docker compose --env-file .env
 
-.PHONY: up down logs psql ps build initdb
+.PHONY: up down logs psql ps build initdb seed-sources
 
 up:
 	$(COMPOSE) up --build
@@ -21,4 +21,7 @@ build:
 	$(COMPOSE) build
 
 initdb:
-	@echo "Database schema initializes automatically via init scripts."
+        @echo "Database schema initializes automatically via init scripts."
+
+seed-sources:
+        python scripts/seed_sources.py
