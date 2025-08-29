@@ -221,19 +221,58 @@ async def get_entity(entity_id: int):
     return {"id": entity_id, "type": "Org", "name": "Placeholder Org", "attrs": {}}
 
 
-@app.get("/graph")
-async def graph(seed: Optional[int] = Query(default=None, description="Seed entity id")):
-    return {
-        "seed": seed,
-        "nodes": [
-            {"id": 1, "label": "Org: Example"},
-            {"id": 2, "label": "Event: Sample"},
-        ],
-        "edges": [
-            {"src": 1, "dst": 2, "relation": "INVOLVES"}
-        ],
-        "note": "Placeholder graph; back by relations table later",
-    }
+@app.get("/graph/entity/{entity_id}")
+async def graph_entity(entity_id: int):
+    ent = fetch_one("SELECT id, type, name FROM entities WHERE id=%s", (entity_id,))
+    if not ent:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    rel_rows = fetch_all(
+        """
+        SELECT r.src_entity, r.dst_entity, r.relation,
+               s.type AS src_type, s.name AS src_name,
+               d.type AS dst_type, d.name AS dst_name
+        FROM relations r
+        JOIN entities s ON s.id = r.src_entity
+        JOIN entities d ON d.id = r.dst_entity
+        WHERE r.src_entity=%s OR r.dst_entity=%s
+        """,
+        (entity_id, entity_id),
+    )
+    nodes = {ent["id"]: {"id": ent["id"], "label": f"{ent['type']}: {ent['name']}"}}
+    edges = []
+    for r in rel_rows:
+        for eid, etype, name in [
+            (r["src_entity"], r["src_type"], r["src_name"]),
+            (r["dst_entity"], r["dst_type"], r["dst_name"]),
+        ]:
+            if eid not in nodes:
+                nodes[eid] = {"id": eid, "label": f"{etype}: {name}"}
+        edges.append({"src": r["src_entity"], "dst": r["dst_entity"], "relation": r["relation"]})
+    return {"nodes": list(nodes.values()), "edges": edges}
+
+
+@app.get("/graph/event/{event_id}")
+async def graph_event(event_id: int):
+    ev = fetch_one("SELECT id, title FROM events WHERE id=%s", (event_id,))
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+    rows = fetch_all(
+        """
+        SELECT ee.entity_id, ee.relation, e.type, e.name
+        FROM event_entities ee
+        JOIN entities e ON e.id = ee.entity_id
+        WHERE ee.event_id=%s
+        """,
+        (event_id,),
+    )
+    nodes = {event_id: {"id": event_id, "label": f"Event: {ev['title']}"}}
+    edges = []
+    for r in rows:
+        eid = r["entity_id"]
+        if eid not in nodes:
+            nodes[eid] = {"id": eid, "label": f"{r['type']}: {r['name']}"}
+        edges.append({"src": event_id, "dst": eid, "relation": r["relation"]})
+    return {"nodes": list(nodes.values()), "edges": edges}
 
 
 @app.get("/notebooks/{notebook_id}", response_model=Notebook)

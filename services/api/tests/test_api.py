@@ -176,3 +176,17 @@ def test_events_geojson(client, mock_fetch_all):
     assert fc["count"] == 1
     assert fc["features"][0]["geometry"]["type"] == "Point"
 
+
+def test_graph_entity_endpoint(client, mock_fetch_one, mock_fetch_all):
+    mock_fetch_one["result"] = {"id": 1, "type": "Org", "name": "ACME"}
+    r = client.get("/graph/entity/1")
+    assert r.status_code == 200
+    assert mock_fetch_one["calls"]
+
+
+def test_graph_event_endpoint(client, mock_fetch_one, mock_fetch_all):
+    mock_fetch_one["result"] = {"id": 1, "title": "Event"}
+    r = client.get("/graph/event/1")
+    assert r.status_code == 200
+    assert mock_fetch_one["calls"]
+

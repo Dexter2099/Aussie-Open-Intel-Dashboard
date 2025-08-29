@@ -1,5 +1,8 @@
 import os
 import subprocess
+import os
+import shutil
+import subprocess
 import time
 from pathlib import Path
 
@@ -8,6 +11,8 @@ import requests
 
 ROOT = Path(__file__).resolve().parents[3]
 COMPOSE_FILE = ROOT / "infra" / "docker-compose.yml"
+
+pytestmark = pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available")
 
 
 def _compose_env() -> dict:

@@ -60,3 +60,50 @@ def insert_event(
         )
     return cur.fetchone()[0]
 
+
+def ensure_entity(cur, type_: str, name: str, attrs: Optional[dict] = None) -> int:
+    """Return the entity id for ``(type_, name)`` inserting if necessary."""
+
+    cur.execute(
+        "SELECT id FROM entities WHERE type=%s::entity_type AND name=%s",
+        (type_, name),
+    )
+    row = cur.fetchone()
+    if row:
+        return row[0]
+    cur.execute(
+        """
+        INSERT INTO entities(type, name, attrs)
+        VALUES(%s::entity_type, %s, %s::jsonb)
+        RETURNING id
+        """,
+        (type_, name, attrs or {}),
+    )
+    return cur.fetchone()[0]
+
+
+def link_event_entity(cur, event_id: int, entity_id: int, relation: str, score: Optional[float] = None) -> None:
+    """Create a link between an event and an entity."""
+
+    cur.execute(
+        """
+        INSERT INTO event_entities(event_id, entity_id, relation, score)
+        VALUES(%s,%s,%s,%s)
+        ON CONFLICT (event_id, entity_id, relation) DO NOTHING
+        """,
+        (event_id, entity_id, relation, score),
+    )
+
+
+def upsert_relation(cur, src_entity: int, dst_entity: int, relation: str) -> None:
+    """Upsert a relation between two entities."""
+
+    cur.execute(
+        """
+        INSERT INTO relations(src_entity, dst_entity, relation, first_seen, last_seen)
+        VALUES(%s,%s,%s, now(), now())
+        ON CONFLICT (src_entity, dst_entity, relation)
+        DO UPDATE SET last_seen = excluded.last_seen
+        """,
+        (src_entity, dst_entity, relation),
+    )
