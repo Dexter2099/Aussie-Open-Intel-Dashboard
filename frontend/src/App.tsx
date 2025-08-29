@@ -27,6 +27,22 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [sources, setSources] = useState<{id:number; name:string; type?:string}[]>([])
   const [sourceId, setSourceId] = useState<number | ''>('')
+  const initialBboxRef = useRef<string | null>(null)
+
+  // Parse URL on first render
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search)
+    const q0 = sp.get('q')
+    const tr0 = sp.get('time_range')
+    const sid0 = sp.get('source_id')
+    const bbox0 = sp.get('bbox')
+    const sel0 = sp.get('selected_id')
+    if (q0) setQ(q0)
+    if (tr0) setTimeRange(tr0)
+    if (sid0) setSourceId(Number(sid0))
+    if (bbox0) initialBboxRef.current = bbox0
+    if (sel0) setSelectedId(Number(sel0))
+  }, [])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -42,6 +58,14 @@ export default function App() {
     map.on('load', () => {
       // fetch sources
       fetch(`${API_BASE}/sources`).then(r => r.json()).then(data => setSources(data.results || [])).catch(console.error)
+      // If URL contained bbox, fit to it before refresh
+      if (initialBboxRef.current) {
+        const parts = initialBboxRef.current.split(',').map(Number)
+        if (parts.length === 4 && parts.every((v) => Number.isFinite(v))) {
+          const [minlon, minlat, maxlon, maxlat] = parts
+          map.fitBounds([[minlon, minlat], [maxlon, maxlat]], { padding: 32, animate: false })
+        }
+      }
       refresh()
     })
     map.on('moveend', () => {
@@ -74,6 +98,24 @@ export default function App() {
       setCount(data.count)
       setResults(list.results || [])
       upsertGeoJSON(data)
+
+      // Sync URL (avoid stacking history)
+      const qs = new URLSearchParams()
+      if (q) qs.set('q', q)
+      if (timeRange) qs.set('time_range', timeRange)
+      if (sourceId) qs.set('source_id', String(sourceId))
+      if (selectedId) qs.set('selected_id', String(selectedId))
+      qs.set('bbox', bbox)
+      const next = `${window.location.pathname}?${qs.toString()}`
+      window.history.replaceState(null, '', next)
+
+      // If selectedId present in URL and now we have results, recenter to it once
+      if (selectedId && list.results) {
+        const found = list.results.find((r: any) => r.id === selectedId)
+        if (found && found.lon != null && found.lat != null && mapRef.current) {
+          mapRef.current.easeTo({ center: [found.lon, found.lat], zoom: Math.max(mapRef.current.getZoom(), 8) })
+        }
+      }
     } catch (e) {
       console.error(e)
     } finally {
@@ -135,7 +177,11 @@ export default function App() {
       const p = f.properties as any
       const html = `<strong>${p.title ?? 'Event'}</strong><br/>${p.event_type ?? ''}<br/>Detected: ${p.detected_at ?? ''}`
       new maplibregl.Popup().setLngLat(coords).setHTML(html).addTo(map)
-      setSelectedId(Number(p.id))
+      const id = Number(p.id)
+      setSelectedId(id)
+      const sp = new URLSearchParams(window.location.search)
+      sp.set('selected_id', String(id))
+      window.history.replaceState(null, '', `${window.location.pathname}?${sp.toString()}`)
     })
   }
 
@@ -184,6 +230,9 @@ export default function App() {
                       const html = `<strong>${r.title ?? 'Event'}</strong><br/>${r.event_type ?? ''}<br/>Detected: ${r.detected_at ?? ''}`
                       new maplibregl.Popup().setLngLat([r.lon, r.lat]).setHTML(html).addTo(mapRef.current)
                     }
+                    const sp = new URLSearchParams(window.location.search)
+                    sp.set('selected_id', String(r.id))
+                    window.history.replaceState(null, '', `${window.location.pathname}?${sp.toString()}`)
                   }}
                   style={{
                     padding: '10px 12px',
