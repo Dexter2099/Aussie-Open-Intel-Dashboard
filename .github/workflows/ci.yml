@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: services/api/requirements.txt
+
+      - name: Install API dependencies
+        run: pip install -r services/api/requirements.txt pytest
+
+      - name: Run API unit tests
+        working-directory: services/api
+        run: pytest
+
+      - name: Build API image
+        run: docker build -t aoiapi services/api
+
+      - name: Build ingest image
+        run: docker build -t aoiingest ingest
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Cache node modules
+        uses: actions/cache@v3
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm install
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Build web image
+        run: docker build -t aoiweb frontend
