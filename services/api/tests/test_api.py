@@ -10,6 +10,7 @@ def test_health(client):
 
 def test_auth_required_when_disallowed(monkeypatch):
     monkeypatch.setenv("ALLOW_ANON", "false")
+    monkeypatch.setenv("JWT_SECRET", "testsecret")
     import importlib
     import app.auth as auth
     importlib.reload(auth)
@@ -18,15 +19,43 @@ def test_auth_required_when_disallowed(monkeypatch):
     from fastapi.testclient import TestClient
 
     c = TestClient(main.app)
+    # No token -> 401
     r = c.get("/health")
     assert r.status_code == 401
 
-    r = c.get("/health", headers={"Authorization": "Bearer test"})
+    # Obtain token via login endpoint
+    t = c.post("/token", data={"username": "alice", "password": "pw"})
+    assert t.status_code == 200
+    token = t.json()["access_token"]
+
+    # Valid token works
+    r = c.get("/health", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
+
+    # Invalid token -> 401
+    r = c.get("/health", headers={"Authorization": "Bearer invalid"})
+    assert r.status_code == 401
 
     monkeypatch.setenv("ALLOW_ANON", "true")
     importlib.reload(auth)
     importlib.reload(main)
+
+
+def test_token_endpoint(monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "tokensecret")
+    import importlib
+    import app.auth as auth
+    importlib.reload(auth)
+    import app.main as main
+    importlib.reload(main)
+    from fastapi.testclient import TestClient
+
+    c = TestClient(main.app)
+    r = c.post("/token", data={"username": "bob", "password": "pw"})
+    assert r.status_code == 200
+    token = r.json()["access_token"]
+    decoded = auth.jwt.decode(token, "tokensecret", algorithms=[auth.ALGORITHM])
+    assert decoded["sub"] == "bob"
 
 
 def test_sources(client, mock_fetch_all):

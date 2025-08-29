@@ -6,12 +6,14 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 from fastapi import FastAPI, Query, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse, JSONResponse
+from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 
 from .schemas import Event, Entity, Notebook, SearchQuery
 from .db import fetch_all, fetch_one
-from .auth import get_current_user
+from .auth import get_current_user, create_access_token
 
 logging.basicConfig(level=logging.INFO)
 structlog.configure(
@@ -38,6 +40,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+@app.post("/token", response_model=Token, include_in_schema=True)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """Issue a JWT for the supplied credentials.
+
+    This is a stub implementation that accepts any username and password and
+    returns a signed JWT identifying the user by ``sub``.
+    """
+
+    user = {"sub": form_data.username}
+    token = create_access_token(user)
+    return {"access_token": token, "token_type": "bearer"}
 
 
 @app.middleware("http")
