@@ -1,6 +1,7 @@
 import 'maplibre-gl/dist/maplibre-gl.css'
 import maplibregl, { Map as MlMap } from 'maplibre-gl'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import './App.css'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
 
@@ -29,6 +30,15 @@ export default function App() {
   const [sourceId, setSourceId] = useState<number | ''>('')
   const initialBboxRef = useRef<string | null>(null)
 
+  const sourceColors = useMemo(() => {
+    const palette = ['#e57373', '#64b5f6', '#81c784', '#ffb74d', '#ba68c8', '#4db6ac', '#9575cd', '#dce775', '#ff8a65', '#a1887f']
+    const map: Record<number, string> = {}
+    sources.forEach((s, i) => {
+      map[s.id] = palette[i % palette.length]
+    })
+    return map
+  }, [sources])
+
   // Parse URL on first render
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search)
@@ -39,7 +49,7 @@ export default function App() {
     const sel0 = sp.get('selected_id')
     if (q0) setQ(q0)
     if (tr0) setTimeRange(tr0)
-    if (sid0) setSourceId(Number(sid0))
+    if (sid0 !== null) setSourceId(Number(sid0))
     if (bbox0) initialBboxRef.current = bbox0
     if (sel0) setSelectedId(Number(sel0))
   }, [])
@@ -89,7 +99,7 @@ export default function App() {
       params.set('limit', '1000')
       if (q) params.set('q', q)
       if (timeRange) params.set('time_range', timeRange)
-      if (sourceId) params.set('source_id', String(sourceId))
+      if (sourceId !== '') params.set('source_id', String(sourceId))
       const urlGeo = `${API_BASE}/events/geojson?${params.toString()}`
       const urlList = `${API_BASE}/search?${params.toString()}`
       const [resGeo, resList] = await Promise.all([fetch(urlGeo), fetch(urlList)])
@@ -103,7 +113,7 @@ export default function App() {
       const qs = new URLSearchParams()
       if (q) qs.set('q', q)
       if (timeRange) qs.set('time_range', timeRange)
-      if (sourceId) qs.set('source_id', String(sourceId))
+      if (sourceId !== '') qs.set('source_id', String(sourceId))
       if (selectedId) qs.set('selected_id', String(selectedId))
       qs.set('bbox', bbox)
       const next = `${window.location.pathname}?${qs.toString()}`
@@ -241,7 +251,22 @@ export default function App() {
                     background: isSel ? '#e3f2fd' : 'transparent'
                   }}>
                   <div style={{ fontWeight: 600, marginBottom: 4 }}>{r.title || 'Event'}</div>
-                  <div style={{ fontSize: 12, color: '#666' }}>{r.event_type} • {r.source_name || 'Unknown source'}</div>
+                  <div style={{ fontSize: 12, color: '#666' }}>
+                    {r.event_type}
+                    {r.source_name ? (
+                      <>
+                        {' '}
+                        <span
+                          className="source-badge"
+                          style={{ backgroundColor: sourceColors[r.source_id] || '#999' }}
+                        >
+                          {r.source_name}
+                        </span>
+                      </>
+                    ) : (
+                      <> • Unknown source</>
+                    )}
+                  </div>
                   <div style={{ fontSize: 12, color: '#666' }}>{r.detected_at?.replace('T', ' ').replace('Z','')} {r.jurisdiction ? `• ${r.jurisdiction}` : ''}</div>
                 </div>
               )
