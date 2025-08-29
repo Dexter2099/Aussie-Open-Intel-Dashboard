@@ -89,3 +89,41 @@ CREATE INDEX IF NOT EXISTS idx_events_event_type_detected_at ON events(event_typ
 CREATE INDEX IF NOT EXISTS idx_events_source_detected_at ON events(source_id, detected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_text_search ON events USING GIN (to_tsvector('simple', title || ' ' || coalesce(body,'')));
 
+-- Seed minimal sample data so API returns non-empty results out-of-the-box
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM sources WHERE name = 'API Seed') THEN
+    INSERT INTO sources(name, url, type) VALUES ('API Seed', 'fixture://seed', 'Other');
+  END IF;
+
+  -- Insert sample events if none exist for this seed source
+  IF NOT EXISTS (SELECT 1 FROM events e JOIN sources s ON s.id=e.source_id WHERE s.name = 'API Seed') THEN
+    -- Brisbane area
+    INSERT INTO events (source_id, title, body, event_type, occurred_at, detected_at, geom, jurisdiction, confidence, severity)
+    SELECT s.id,
+           'Sample Event A',
+           'Demonstration event near Brisbane (QLD).',
+           'Other'::event_type,
+           now() - interval '1 day',
+           now(),
+           ST_GeogFromText('POINT(153.0251 -27.4698)'),
+           'QLD',
+           0.7,
+           0.3
+    FROM sources s WHERE s.name='API Seed' LIMIT 1;
+
+    -- Toowoomba area
+    INSERT INTO events (source_id, title, body, event_type, occurred_at, detected_at, geom, jurisdiction, confidence, severity)
+    SELECT s.id,
+           'Sample Event B',
+           'Demonstration event near Toowoomba (QLD).',
+           'Other'::event_type,
+           now() - interval '2 days',
+           now(),
+           ST_GeogFromText('POINT(151.9539 -27.5598)'),
+           'QLD',
+           0.8,
+           0.5
+    FROM sources s WHERE s.name='API Seed' LIMIT 1;
+  END IF;
+END $$;

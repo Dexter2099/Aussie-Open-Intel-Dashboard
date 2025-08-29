@@ -21,6 +21,7 @@ from .schemas import (
 )
 from .db import fetch_all, fetch_one
 from .auth import get_current_user, create_access_token
+from .routes import router as v1_router
 
 logging.basicConfig(level=logging.INFO)
 structlog.configure(
@@ -47,6 +48,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount v1 API routes
+app.include_router(v1_router)
 
 
 class Token(BaseModel):
@@ -94,6 +98,11 @@ async def handle_exceptions(request: Request, exc: Exception):
 @app.get("/health")
 async def health():
     return {"status": "ok", "ts": datetime.utcnow().isoformat()}
+
+
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok"}
 
 
 @app.get("/search")
