@@ -1,59 +1,82 @@
+from __future__ import annotations
+
 import argparse
-import logging
+import io
 import os
-import time
-from datetime import datetime
-from typing import List, Tuple
+import pathlib
+from typing import List, Tuple, Type
 
 import structlog
-from structlog.contextvars import bind_contextvars, clear_contextvars
+from minio import Minio
+from tenacity import retry, stop_after_attempt, wait_fixed
 
-from .common.schemas import NormalizedEvent
+from .adapters.base import Adapter, RawItem
+from .adapters.bom import BOMAdapter
+from .adapters.qfes import QFESAdapter
 from .common import db as dbmod
-from services.etl import fusion
+from .common.schemas import NormalizedEvent
+
+ADAPTERS: dict[str, Type[Adapter]] = {
+    "bom": BOMAdapter,
+    "qfes": QFESAdapter,
+}
 
 
-def run_adapter(name: str, feed_url: str | None = None) -> Tuple[List[NormalizedEvent], str, str, str]:
-    if name == "au_wildfire_fixture":
-        from .adapters import au_wildfire_fixture as adapter
-        raw = adapter.load_fixture()
-        source_name, source_url, source_type = adapter.get_source_meta()
-    elif name == "http_json_feed":
-        from .adapters import http_json_feed as adapter
-        raw = adapter.fetch_feed(feed_url)
-        source_name, source_url, source_type = adapter.get_source_meta(feed_url)
-    elif name == "ais":
-        from .adapters import ais as adapter
-        raw = adapter.fetch_feed(feed_url)
-        source_name, source_url, source_type = adapter.get_source_meta(feed_url)
-    elif name == "bushfire_alerts":
-        from .adapters import bushfire_alerts as adapter
-        raw = adapter.fetch_feed(feed_url)
-        source_name, source_url, source_type = adapter.get_source_meta(feed_url)
-    elif name == "cyber_advisories":
-        from .adapters import cyber_advisories as adapter
-        raw = adapter.fetch_feed(feed_url)
-        source_name, source_url, source_type = adapter.get_source_meta(feed_url)
-    elif name == "news_feed":
-        from .adapters import news_feed as adapter
-        raw = adapter.fetch_feed(feed_url)
-        source_name, source_url, source_type = adapter.get_source_meta(feed_url)
+def _get_logger():
+    structlog.configure(
+        processors=[
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.JSONRenderer(),
+        ]
+    )
+    return structlog.get_logger()
+
+
+logger = _get_logger()
+
+
+def _store_raw(adapter_name: str, items: List[RawItem]) -> None:
+    """Persist raw payloads to local disk or MinIO/S3."""
+
+    endpoint = os.getenv("MINIO_ENDPOINT")
+    if endpoint:
+        client = Minio(
+            endpoint,
+            access_key=os.getenv("MINIO_ACCESS_KEY"),
+            secret_key=os.getenv("MINIO_SECRET_KEY"),
+            secure=False,
+        )
+        bucket = os.getenv("RAW_BUCKET", "raw")
+        if not client.bucket_exists(bucket):
+            client.make_bucket(bucket)
+        for idx, item in enumerate(items):
+            data = item.json().encode("utf-8")
+            name = f"{adapter_name}/{item.fetched_at.isoformat()}_{idx}.json"
+            client.put_object(bucket, name, io.BytesIO(data), len(data))
     else:
-        raise SystemExit(f"Unknown adapter: {name}")
+        base = pathlib.Path(os.getenv("RAW_DIR", "raw")) / adapter_name
+        base.mkdir(parents=True, exist_ok=True)
+        for idx, item in enumerate(items):
+            path = base / f"{item.fetched_at.isoformat()}_{idx}.json"
+            path.write_text(item.json())
 
-    events = adapter.normalize(raw)
-    return events, source_name, source_url, source_type
 
-
-def persist(events: List[NormalizedEvent], source_name: str, source_url: str, source_type: str) -> int:
-    """Persist normalised events and derived entities/relations."""
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
+def persist(
+    events: List[NormalizedEvent],
+    source_name: str,
+    source_url: str | None,
+    source_type: str | None,
+) -> int:
+    """Persist normalised events into the database."""
 
     count = 0
     with dbmod.get_conn() as conn:
         with conn.cursor() as cur:
             source_id = dbmod.ensure_source(cur, source_name, source_url, source_type)
             for ev in events:
-                event_id = dbmod.insert_event(
+                dbmod.insert_event(
                     cur,
                     source_id=source_id,
                     title=ev.title,
@@ -66,78 +89,32 @@ def persist(events: List[NormalizedEvent], source_name: str, source_url: str, so
                     confidence=ev.confidence,
                     severity=ev.severity,
                 )
-
-                # Run ETL pipeline for entity/relationship extraction
-                entities, relations = fusion.process_event({"title": ev.title, "body": ev.body or ""})
-                ent_ids = {}
-                for ent in entities:
-                    attrs = {}
-                    if "lat" in ent and "lon" in ent:
-                        attrs.update({"lat": ent["lat"], "lon": ent["lon"]})
-                    if "jurisdiction" in ent:
-                        attrs["jurisdiction"] = ent["jurisdiction"]
-                    ent_id = dbmod.ensure_entity(cur, ent["type"], ent["name"], attrs)
-                    ent_ids[ent["name"]] = ent_id
-                    dbmod.link_event_entity(cur, event_id, ent_id, "MENTIONS")
-
-                for src_name, dst_name, rel in relations:
-                    src_id = ent_ids.get(src_name)
-                    dst_id = ent_ids.get(dst_name)
-                    if src_id and dst_id:
-                        dbmod.upsert_relation(cur, src_id, dst_id, rel)
-
                 count += 1
         conn.commit()
     return count
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Run an ingestion adapter")
-    parser.add_argument(
-        "--adapter",
-        default=os.getenv("INGEST_ADAPTER", "au_wildfire_fixture"),
-        help="Adapter name",
-    )
-    parser.add_argument("--loop", action="store_true", help="Run continuously")
-    parser.add_argument("--feed-url", default=os.getenv("FEED_URL"), help="Override feed URL")
+def run_adapter(name: str) -> Tuple[List[NormalizedEvent], str, str, str]:
+    adapter_cls = ADAPTERS.get(name)
+    if not adapter_cls:
+        raise SystemExit(f"Unknown adapter: {name}")
+    adapter = adapter_cls()
+    raw_items = adapter.fetch_raw()
+    _store_raw(name, raw_items)
+    events = adapter.parse(raw_items)
+    # For our stubs we only know source name
+    return events, adapter.source, None, "feed"
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("adapter", choices=ADAPTERS.keys())
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO)
-    structlog.configure(
-        processors=[
-            structlog.contextvars.merge_contextvars,
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.processors.JSONRenderer(),
-        ]
-    )
-    logger = structlog.get_logger()
-
-    interval = int(os.getenv("INGEST_INTERVAL_SECONDS", "300"))
-
-    clear_contextvars()
-    bind_contextvars(source="ingest", adapter=args.adapter)
-
-    def run_once() -> None:
-        started = time.monotonic()
-        events, source_name, source_url, source_type = run_adapter(args.adapter, args.feed_url)
-        inserted = persist(events, source_name, source_url, source_type)
-        duration = time.monotonic() - started
-        bind_contextvars(
-            events_normalized=len(events),
-            events_inserted=inserted,
-            duration_seconds=duration,
-        )
-        logger.info("cycle")
-
-    if args.loop:
-        while True:
-            run_once()
-            time.sleep(interval)
-    else:
-        run_once()
+    events, source_name, source_url, source_type = run_adapter(args.adapter)
+    inserted = persist(events, source_name, source_url, source_type)
+    logger.info("ingest_complete", adapter=args.adapter, events=len(events), inserted=inserted)
 
 
 if __name__ == "__main__":
     main()
-
