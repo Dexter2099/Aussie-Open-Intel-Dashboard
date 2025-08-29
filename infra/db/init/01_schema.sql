@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS events (
   jurisdiction TEXT,
   confidence REAL,
   severity REAL,
+  entities JSONB DEFAULT '[]'::jsonb,
+  raw JSONB,
   UNIQUE (source_id, title, occurred_at)
 );
 
@@ -88,6 +90,7 @@ CREATE INDEX IF NOT EXISTS idx_relations_src_dst ON relations(src_entity, dst_en
 CREATE INDEX IF NOT EXISTS idx_events_event_type_detected_at ON events(event_type, detected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_source_detected_at ON events(source_id, detected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_text_search ON events USING GIN (to_tsvector('simple', title || ' ' || coalesce(body,'')));
+CREATE INDEX IF NOT EXISTS idx_events_entities_gin ON events USING GIN (entities);
 
 -- Seed minimal sample data so API returns non-empty results out-of-the-box
 DO $$
