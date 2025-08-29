@@ -27,6 +27,7 @@ from ingest.adapters import (
     bushfire_alerts,
     cyber_advisories,
     acsc_adapter,
+    bom_warnings_adapter,
     news_feed,
 )
 
@@ -131,4 +132,15 @@ def test_acsc_adapter_normalizes_and_persists():
     events = acsc_adapter.normalize(raw)
     assert events
     count = _persist(events, acsc_adapter.get_source_meta("http://example"))
+    assert count == len(events)
+
+
+def test_bom_warnings_adapter_normalizes_and_persists():
+    data = load_fixture("bom_warnings_sample.xml")
+    raw = RawPayload(source_name="test", fetched_at=datetime.utcnow(), url="http://example", content=data)
+    events = bom_warnings_adapter.normalize(raw)
+    assert events
+    # All events should be weather type
+    assert all(ev.event_type == "Weather" for ev in events)
+    count = _persist(events, bom_warnings_adapter.get_source_meta("http://example"))
     assert count == len(events)
