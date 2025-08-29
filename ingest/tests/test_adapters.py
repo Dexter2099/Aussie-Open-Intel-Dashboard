@@ -3,14 +3,30 @@ import pathlib
 import sys
 from datetime import datetime
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
+BASE_PATH = pathlib.Path(__file__).resolve()
+sys.path.append(str(BASE_PATH.parents[2]))
+sys.path.append(str(BASE_PATH.parents[1]))
 
 from ingest.common.schemas import RawPayload
+
+import types
+
+services = types.ModuleType("services")
+etl = types.ModuleType("services.etl")
+fusion = types.ModuleType("services.etl.fusion")
+fusion.process_event = lambda data: ([], [])
+etl.fusion = fusion
+services.etl = etl
+sys.modules.setdefault("services", services)
+sys.modules.setdefault("services.etl", etl)
+sys.modules.setdefault("services.etl.fusion", fusion)
+
 from ingest import run
 from ingest.adapters import (
     ais,
     bushfire_alerts,
     cyber_advisories,
+    acsc_adapter,
     news_feed,
 )
 
@@ -106,4 +122,13 @@ def test_news_adapter_normalizes_and_persists():
     events = news_feed.normalize(raw)
     assert events
     count = _persist(events, news_feed.get_source_meta("http://example"))
+    assert count == len(events)
+
+
+def test_acsc_adapter_normalizes_and_persists():
+    data = load_fixture("acsc_alerts_sample.xml")
+    raw = RawPayload(source_name="test", fetched_at=datetime.utcnow(), url="http://example", content=data)
+    events = acsc_adapter.normalize(raw)
+    assert events
+    count = _persist(events, acsc_adapter.get_source_meta("http://example"))
     assert count == len(events)

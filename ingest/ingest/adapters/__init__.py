@@ -4,6 +4,7 @@ __all__ = [
     "ais",
     "bushfire_alerts",
     "cyber_advisories",
+    "acsc_adapter",
     "news_feed",
 ]
 
