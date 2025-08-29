@@ -54,6 +54,16 @@ class Notebook(BaseModel):
     created_at: Optional[datetime] = None
 
 
+class NotebookCreate(BaseModel):
+    title: str
+    items: list
+
+
+class NotebookUpdate(BaseModel):
+    title: Optional[str] = None
+    items: Optional[list] = None
+
+
 class SearchQuery(BaseModel):
     q: Optional[str] = None
     bbox: Optional[str] = None
