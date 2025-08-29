@@ -8,6 +8,27 @@ def test_health(client):
     assert body.get("status") == "ok"
 
 
+def test_auth_required_when_disallowed(monkeypatch):
+    monkeypatch.setenv("ALLOW_ANON", "false")
+    import importlib
+    import app.auth as auth
+    importlib.reload(auth)
+    import app.main as main
+    importlib.reload(main)
+    from fastapi.testclient import TestClient
+
+    c = TestClient(main.app)
+    r = c.get("/health")
+    assert r.status_code == 401
+
+    r = c.get("/health", headers={"Authorization": "Bearer test"})
+    assert r.status_code == 200
+
+    monkeypatch.setenv("ALLOW_ANON", "true")
+    importlib.reload(auth)
+    importlib.reload(main)
+
+
 def test_sources(client, mock_fetch_all):
     # Seed fetch_all to return a source
     def _return_sources(sql, params=()):
