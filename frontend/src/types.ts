@@ -29,7 +29,11 @@ export interface GraphEdge {
 
 export interface GraphData {
   nodes: GraphNode[]
+codex/add-event-drawer-component
+  links: GraphLink[]
+
   edges: GraphEdge[]
+main
 }
 
 export interface TimelineEvent {
@@ -38,6 +42,8 @@ export interface TimelineEvent {
   event_type: EventType
   detected_at: string
 }
+
+codex/add-event-drawer-component
 
 export interface NotebookItem {
   id: string
@@ -57,3 +63,4 @@ export interface Notebook {
   items?: NotebookItem[]
 }
 
+main

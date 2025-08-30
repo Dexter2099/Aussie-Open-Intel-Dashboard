@@ -1,5 +1,8 @@
 import axios from 'axios'
 
+codex/add-event-drawer-component
+import type { Event, GraphData, TimelineEvent } from '../types'
+
 import type {
   Event,
   GraphData,
@@ -7,6 +10,7 @@ import type {
   Notebook,
   NotebookItem,
 } from '../types'
+main
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE || '/api',
@@ -25,6 +29,18 @@ export function fetchGraph(entityId: string) {
   const param = entityId ? `?entity_id=${entityId}` : ''
   return api.get<GraphData>(`/graph${param}`)
 }
+ codex/add-event-drawer-component
+
+export async function fetchTimelineEvents(cursor?: string, limit = 50) {
+  const url = `/events?limit=${limit}${cursor ? `&cursor=${cursor}` : ''}`
+  const res = await api.get<TimelineEvent[]>(url)
+  return {
+    events: res.data,
+    nextCursor: res.headers['x-next-cursor'] as string | undefined,
+  }
+}
+
+
 
 interface TimelineQuery {
   cursor?: string
@@ -83,3 +99,4 @@ export async function fetchEntity(id: string) {
   return res.data as any
 }
 
+main

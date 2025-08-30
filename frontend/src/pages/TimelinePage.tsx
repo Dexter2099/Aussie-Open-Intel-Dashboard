@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
 import { fetchTimelineEvents } from '../lib/api'
+codex/add-event-drawer-component
+import EventDrawer from '../components/EventDrawer'
+import type { TimelineEvent } from '../types'
+
 import type { EventType, TimelineEvent } from '../types'
 import EventDrawer from '../components/EventDrawer'
 
@@ -18,13 +22,17 @@ const RANGES = [
   { value: '7d', label: 'Last 7d' },
   { value: '30d', label: 'Last 30d' },
 ]
+main
 
 export default function TimelinePage() {
   const [events, setEvents] = useState<TimelineEvent[]>([])
   const [cursor, setCursor] = useState<string | undefined>()
   const [loading, setLoading] = useState(false)
+codex/add-event-drawer-component
+
   const [selectedTypes, setSelectedTypes] = useState<EventType[]>([...EVENT_TYPES])
   const [since, setSince] = useState('48h')
+ main
   const [openId, setOpenId] = useState<string | null>(null)
 
   const typeQuery =
@@ -111,6 +119,27 @@ export default function TimelinePage() {
               borderBottom: '1px solid #ddd',
             }}
           >
+codex/add-event-drawer-component
+            {ev.event_type}
+          </span>
+          <div style={{ flex: 1 }}>{ev.title}</div>
+          <button
+            type="button"
+            onClick={() => setOpenId(ev.id)}
+            style={{ marginLeft: '1rem' }}
+          >
+            Open
+          </button>
+          <button
+            type="button"
+            onClick={() => console.log('Add to Notebook', ev.id)}
+            style={{ marginLeft: '0.5rem' }}
+          >
+            Add to Notebook
+          </button>
+        </div>
+      ))}
+
             <div style={{ width: '12rem', marginRight: '1rem' }}>
               {new Date(ev.detected_at).toLocaleString()}
             </div>
@@ -143,6 +172,7 @@ export default function TimelinePage() {
         ))
       )}
 
+main
       {cursor && (
         <div style={{ textAlign: 'center', marginTop: '1rem' }}>
           <button type="button" onClick={() => loadMore()} disabled={loading}>
