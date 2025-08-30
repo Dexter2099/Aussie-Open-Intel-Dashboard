@@ -36,5 +36,26 @@ export interface TimelineEvent {
   title: string
   event_type: EventType
   detected_at: string
+codex/add-crud-functionality-for-notebooks
+}
+
+export interface NotebookItem {
+  id: string
+  notebook_id: string
+  kind: 'event' | 'entity'
+  ref_id: string
+  note?: string | null
+  created_at?: string
+  title?: string
+}
+
+export interface Notebook {
+  id: string
+  created_by: string
+  title: string
+  created_at?: string
+  items?: NotebookItem[]
+
+main
 }
 
