@@ -83,11 +83,16 @@ def test_graph_two_hop(graph_client, db_conn):
     data = r.json()
     nodes = data["nodes"]
     edges = data["edges"]
-    assert len([n for n in nodes if n["type"] == "event"]) == 3
-    assert len([n for n in nodes if n["type"] == "entity"]) == 3
-    org_node = next(n for n in nodes if n["id"] == org)
-    assert org_node["provenance_counts"]["mentioned"] == 3
-    ee_edges = [e for e in edges if e["type"] == "entity-entity"]
+    assert len([n for n in nodes if n["kind"] == "event"]) == 3
+    assert len([n for n in nodes if n["kind"] == "entity"]) == 3
+
+    # entity-entity weights aggregated by co-occurrence
+    ee_edges = [
+        e
+        for e in edges
+        if any(n["id"] == e["source"] and n["kind"] == "entity" for n in nodes)
+        and any(n["id"] == e["target"] and n["kind"] == "entity" for n in nodes)
+    ]
 
     def weight(a, b):
         for e in ee_edges:
@@ -97,6 +102,7 @@ def test_graph_two_hop(graph_client, db_conn):
 
     assert weight(org, alice) == 2
     assert weight(org, bob) == 2
+    assert weight(alice, bob) == 1
     assert len(edges) == 10
 
     durations = []

@@ -18,9 +18,10 @@ export interface GraphNode {
   id: string
   label: string
   kind: 'entity' | 'event'
+  type?: string
 }
 
-export interface GraphLink {
+export interface GraphEdge {
   source: string
   target: string
   weight: number
@@ -28,7 +29,11 @@ export interface GraphLink {
 
 export interface GraphData {
   nodes: GraphNode[]
+codex/add-get-/graph-api-and-frontend-integration
+  edges: GraphEdge[]
+
   links: GraphLink[]
+main
 }
 
 export interface TimelineEvent {
@@ -36,6 +41,8 @@ export interface TimelineEvent {
   title: string
   event_type: EventType
   detected_at: string
+codex/add-get-/graph-api-and-frontend-integration
+
 codex/add-crud-functionality-for-notebooks
 }
 
@@ -56,6 +63,7 @@ export interface Notebook {
   created_at?: string
   items?: NotebookItem[]
 
+main
 main
 }
 

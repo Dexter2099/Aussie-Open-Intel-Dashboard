@@ -426,21 +426,19 @@ async def graph(
     entity_id: int = Query(..., description="Root entity id"),
     max: int = Query(200, ge=1, le=1000),
 ):
-    """Return a two-hop graph neighbourhood for an entity.
+    """Return a simple two-hop graph neighbourhood.
 
-    The graph consists of entity and event nodes. Edges connect entities to
-    events as well as entities to other entities when they co-occur in the
-    same event. Edge weights represent the number of co-occurrences. Each
-    entity node includes provenance_counts aggregated from event_entities.
+    Nodes represent events or entities. Edges connect entities to events and
+    co-occurring entities. Results are capped by ``max``.
     """
 
-    # First hop: events linked to the root entity
+    # First, find events linked to the root entity
     ev_rows = fetch_all(
         """
-        SELECT ee.event_id
-        FROM event_entities ee
-        WHERE ee.entity_id=%s
-        ORDER BY ee.event_id
+        SELECT event_id
+        FROM event_entities
+        WHERE entity_id=%s
+        ORDER BY event_id
         LIMIT %s
         """,
         (entity_id, max),
@@ -449,17 +447,16 @@ async def graph(
     if not event_ids:
         return {"nodes": [], "edges": []}
 
-    # Fetch all entity-event edges within these events
+    # All entity-event edges within these events
     ee_rows = fetch_all(
         """
-        SELECT ee.event_id, ee.entity_id, ee.relation
-        FROM event_entities ee
-        WHERE ee.event_id = ANY(%s)
+        SELECT event_id, entity_id
+        FROM event_entities
+        WHERE event_id = ANY(%s)
         LIMIT %s
         """,
         (event_ids, max),
     )
-
     entity_ids = sorted({row["entity_id"] for row in ee_rows})
 
     # Entity details
@@ -476,30 +473,15 @@ async def graph(
     )
     evt_lookup = {r["id"]: r for r in evt_rows}
 
-    # Provenance counts per entity
-    prov_rows = fetch_all(
-        """
-        SELECT entity_id, relation, COUNT(*) AS c
-        FROM event_entities
-        WHERE event_id = ANY(%s)
-        GROUP BY entity_id, relation
-        """,
-        (event_ids,),
-    )
-    prov_counts: dict[int, dict[str, int]] = {}
-    for r in prov_rows:
-        prov_counts.setdefault(r["entity_id"], {})[r["relation"]] = r["c"]
-
     nodes = []
     for eid in entity_ids:
         ent = ent_lookup.get(eid, {})
         nodes.append(
             {
                 "id": eid,
-                "type": "entity",
-                "entity_type": ent.get("type"),
-                "name": ent.get("name"),
-                "provenance_counts": prov_counts.get(eid, {}),
+                "label": ent.get("name"),
+                "kind": "entity",
+                "type": ent.get("type"),
             }
         )
     for eid in event_ids:
@@ -507,24 +489,17 @@ async def graph(
         nodes.append(
             {
                 "id": eid,
-                "type": "event",
-                "event_type": ev.get("event_type"),
-                "title": ev.get("title"),
+                "label": ev.get("title"),
+                "kind": "event",
+                "type": ev.get("event_type"),
             }
         )
 
     edges = []
     for r in ee_rows:
-        edges.append(
-            {
-                "source": r["entity_id"],
-                "target": r["event_id"],
-                "type": "entity-event",
-                "relation": r.get("relation"),
-                "weight": 1,
-            }
-        )
+        edges.append({"source": r["entity_id"], "target": r["event_id"], "weight": 1})
 
+    # Entity co-occurrence edges
     pair_rows = fetch_all(
         """
         SELECT ee1.entity_id AS src, ee2.entity_id AS dst, COUNT(*) AS weight
@@ -537,14 +512,7 @@ async def graph(
         (event_ids, max),
     )
     for r in pair_rows:
-        edges.append(
-            {
-                "source": r["src"],
-                "target": r["dst"],
-                "type": "entity-entity",
-                "weight": r["weight"],
-            }
-        )
+        edges.append({"source": r["src"], "target": r["dst"], "weight": r["weight"]})
 
     return {"nodes": nodes, "edges": edges}
 

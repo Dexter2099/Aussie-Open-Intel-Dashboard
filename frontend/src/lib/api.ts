@@ -1,10 +1,14 @@
 import axios from 'axios'
+codex/add-get-/graph-api-and-frontend-integration
+import type { Event, GraphData, TimelineEvent } from '../types'
+
  codex/add-crud-functionality-for-notebooks
 import type { Event, GraphData, TimelineEvent, Notebook, NotebookItem } from '../types'
 
 
 import type { Event, GraphData, TimelineEvent } from '../types'
 main
+ main
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE || '/api',
@@ -15,6 +19,8 @@ export function fetchEvents(types: string) {
   return api.get<Event[]>(`/events?since=48h${typeParam}`)
 }
 
+codex/add-get-/graph-api-and-frontend-integration
+
  codex/add-crud-functionality-for-notebooks
 
 export function fetchEvent(id: string) {
@@ -22,6 +28,7 @@ export function fetchEvent(id: string) {
 }
 
  main
+main
 export function fetchGraph(entityId: string) {
   const param = entityId ? `?entity_id=${entityId}` : ''
   return api.get<GraphData>(`/graph${param}`)
@@ -29,7 +36,8 @@ export function fetchGraph(entityId: string) {
 
 export async function fetchTimelineEvents(cursor?: string, limit = 50) {
   const url = `/events?limit=${limit}${cursor ? `&cursor=${cursor}` : ''}`
-  const res = await api.get<TimelineEvent[]>(url)
+  const res = await api.get<TimelineEvent[]>(url)codex/add-get-/graph-api-and-frontend-integration
+
 codex/add-crud-functionality-for-notebooks
   return { events: res.data, nextCursor: res.headers['x-next-cursor'] as string | undefined }
 }
@@ -70,10 +78,14 @@ export async function fetchEntity(id: string) {
   const res = await api.get(`/entities/${id}`)
   return res.data as any
 
+main
   return {
     events: res.data,
     nextCursor: res.headers['x-next-cursor'] as string | undefined,
   }
+codex/add-get-/graph-api-and-frontend-integration
+
+main
 main
 }
 
