@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { MapContainer, TileLayer } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet.markercluster'
-import { api } from '../lib/api'
-import { Event, EventType } from '../types'
+import { fetchEvents } from '../lib/api'
+import { EventType } from '../types'
 
 const FALLBACK_CENTER: [number, number] = [-27.47, 153.03]
 const FALLBACK_ZOOM = 6
@@ -48,19 +48,16 @@ const ICONS: Record<EventType, L.Icon> = {
 
 interface Props {
   types: string
-  onSelect: (ev: Event) => void
 }
 
-export default function MapView({ types, onSelect }: Props) {
+export default function MapView({ types }: Props) {
   const mapRef = useRef<L.Map | null>(null)
   const clusterRef = useRef<L.MarkerClusterGroup>(L.markerClusterGroup())
   const [mapReady, setMapReady] = useState(false)
 
   const fetchData = useCallback(() => {
     if (!mapRef.current) return
-    const typeParam = types ? `&type=${types}` : ''
-    api
-      .get<Event[]>(`/events?since=48h${typeParam}`)
+    fetchEvents(types)
       .then((res) => {
         clusterRef.current.clearLayers()
         const markers: L.Marker[] = []
@@ -69,15 +66,16 @@ export default function MapView({ types, onSelect }: Props) {
           if (loc && typeof loc.lat === 'number' && typeof loc.lon === 'number') {
             const marker = L.marker([loc.lat, loc.lon], { icon: ICONS[ev.type] })
             const popupDiv = document.createElement('div')
-            popupDiv.innerHTML = `<strong>${ev.title}</strong><br/>${new Date(ev.time).toLocaleString()}<br/>${ev.type}<br/>`
-            const btn = document.createElement('button')
-            btn.textContent = 'Open'
-            btn.type = 'button'
-            btn.addEventListener('click', () => {
-              onSelect(ev)
-              marker.closePopup()
+            const localTime = new Date(ev.time).toLocaleString()
+            popupDiv.innerHTML = `<strong>${ev.title}</strong><br/>${localTime}<br/>${ev.type}<br/><a href="${ev.source}" target="_blank" rel="noopener noreferrer">Source</a><br/>`
+            const addBtn = document.createElement('button')
+            addBtn.textContent = 'Add to Notebook'
+            addBtn.type = 'button'
+            addBtn.addEventListener('click', () => {
+              // Stub action - replace with real notebook integration
+              console.log('Add to Notebook', ev.id)
             })
-            popupDiv.appendChild(btn)
+            popupDiv.appendChild(addBtn)
             marker.bindPopup(popupDiv)
             markers.push(marker)
           }
@@ -90,7 +88,7 @@ export default function MapView({ types, onSelect }: Props) {
         }
       })
       .catch((err) => console.error(err))
-  }, [types, onSelect])
+  }, [types])
 
   useEffect(() => {
     if (!mapReady) return
