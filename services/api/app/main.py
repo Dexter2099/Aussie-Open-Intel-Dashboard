@@ -21,9 +21,12 @@ from .schemas import (
     NotebookUpdate,
     SearchQuery,
 )
-from .db import fetch_all, fetch_one
+from .db import fetch_all, fetch_one, get_conn
 from .auth import get_current_user, create_access_token
 from .routes import router as v1_router
+from .config import get_settings
+import redis
+from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
 
 logging.basicConfig(level=logging.INFO)
 structlog.configure(
@@ -54,6 +57,9 @@ app.add_middleware(
 # Mount v1 API routes
 app.include_router(v1_router)
 
+REQUEST_COUNTER = Counter("request_total", "Total HTTP requests")
+ERROR_COUNTER = Counter("error_total", "Total HTTP errors")
+
 
 class Token(BaseModel):
     access_token: str
@@ -71,6 +77,19 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     user = {"sub": form_data.username}
     token = create_access_token(user)
     return {"access_token": token, "token_type": "bearer"}
+
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    REQUEST_COUNTER.inc()
+    try:
+        response = await call_next(request)
+        if response.status_code >= 500:
+            ERROR_COUNTER.inc()
+        return response
+    except Exception:
+        ERROR_COUNTER.inc()
+        raise
 
 
 @app.middleware("http")
@@ -104,7 +123,20 @@ async def health():
 
 @app.get("/healthz")
 async def healthz():
+    settings = get_settings()
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+        redis.Redis(host=settings.redis_host, port=settings.redis_port).ping()
+    except Exception:
+        raise HTTPException(status_code=500, detail="unhealthy")
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+async def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/search")
