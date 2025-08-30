@@ -373,12 +373,14 @@ async def get_event_detail(event_id: UUID, include_raw: int = 0):
     )
     if not row:
         raise HTTPException(status_code=404, detail="Event not found")
+    # Fetch related entities for this event in a stable order
     entities = fetch_all(
         """
         SELECT e.id, e.type AS kind, e.name AS label
         FROM event_entities ee
         JOIN entities e ON e.id = ee.entity_id
         WHERE ee.event_id=%s
+        ORDER BY e.name ASC
         """,
         (event_id,),
     )
