@@ -48,9 +48,10 @@ const ICONS: Record<EventType, L.Icon> = {
 
 interface Props {
   types: string
+  onOpen: (id: string) => void
 }
 
-export default function MapView({ types }: Props) {
+export default function MapView({ types, onOpen }: Props) {
   const mapRef = useRef<L.Map | null>(null)
   const clusterRef = useRef<L.MarkerClusterGroup>(L.markerClusterGroup())
   const [mapReady, setMapReady] = useState(false)
@@ -68,11 +69,15 @@ export default function MapView({ types }: Props) {
             const popupDiv = document.createElement('div')
             const localTime = new Date(ev.time).toLocaleString()
             popupDiv.innerHTML = `<strong>${ev.title}</strong><br/>${localTime}<br/>${ev.type}<br/><a href="${ev.source}" target="_blank" rel="noopener noreferrer">Source</a><br/>`
+            const openBtn = document.createElement('button')
+            openBtn.textContent = 'Open'
+            openBtn.type = 'button'
+            openBtn.addEventListener('click', () => onOpen(ev.id))
+            popupDiv.appendChild(openBtn)
             const addBtn = document.createElement('button')
             addBtn.textContent = 'Add to Notebook'
             addBtn.type = 'button'
             addBtn.addEventListener('click', () => {
-              // Stub action - replace with real notebook integration
               console.log('Add to Notebook', ev.id)
             })
             popupDiv.appendChild(addBtn)
@@ -88,7 +93,7 @@ export default function MapView({ types }: Props) {
         }
       })
       .catch((err) => console.error(err))
-  }, [types])
+  }, [types, onOpen])
 
   useEffect(() => {
     if (!mapReady) return

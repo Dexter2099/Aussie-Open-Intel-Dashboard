@@ -373,12 +373,14 @@ async def get_event_detail(event_id: UUID, include_raw: int = 0):
     )
     if not row:
         raise HTTPException(status_code=404, detail="Event not found")
+    # Fetch related entities for this event in a stable order
     entities = fetch_all(
         """
         SELECT e.id, e.type AS kind, e.name AS label
         FROM event_entities ee
         JOIN entities e ON e.id = ee.entity_id
         WHERE ee.event_id=%s
+        ORDER BY e.name ASC
         """,
         (event_id,),
     )
@@ -682,15 +684,12 @@ async def add_notebook_item(
     return row
 
 
-@app.delete("/notebooks/{notebook_id}/items")
+@app.delete("/notebooks/{notebook_id}/items/{item_id}")
 async def delete_notebook_item(
     notebook_id: UUID,
-    payload: dict,
+    item_id: UUID,
     user: dict = Depends(get_current_user),
 ):
-    item_id = payload.get("item_id")
-    if not item_id:
-        raise HTTPException(status_code=400, detail="Missing item_id")
     row = fetch_one(
         """
         DELETE FROM notebook_items WHERE id=%s AND notebook_id=%s AND EXISTS (
@@ -701,7 +700,7 @@ async def delete_notebook_item(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
-    return {"status": "deleted", "id": item_id}
+    return {"status": "deleted", "id": str(item_id)}
 
 
 @app.get("/notebooks/{notebook_id}/export")
