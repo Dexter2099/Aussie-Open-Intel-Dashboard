@@ -193,8 +193,9 @@ async def search(
     }
 
 
-@app.get("/events")
+@app.get("/events", response_model=List[Event], response_model_exclude_none=True)
 async def list_events(
+    response: Response,
     type: Optional[str] = None,
     since: Optional[datetime] = None,
     until: Optional[datetime] = None,
@@ -204,6 +205,16 @@ async def list_events(
     cursor: Optional[str] = None,
     include_raw: int = 0,
 ):
+    """Return a slice of events filtered by the supplied query params.
+
+    The results are ordered by ``detected_at`` and ``id`` descending to allow
+    stable cursor based pagination.  A ``cursor`` for the next page is returned
+    in the ``X-Next-Cursor`` header when another page of results is available.
+
+    The SQL query uses indexed columns (``event_type`` and ``detected_at``) and
+    optionally PostGIS spatial indexes when available.
+    """
+
     clauses: List[str] = []
     params: List = []
 
@@ -271,13 +282,14 @@ async def list_events(
         if include_raw:
             evt["raw"] = raw
         events.append(evt)
-    next_cursor = None
     if len(rows) == limit:
         last = rows[-1]
         next_cursor = base64.urlsafe_b64encode(
             f"{last['detected_at'].isoformat()}|{last['id']}".encode()
         ).decode()
-    return {"items": events, "next_cursor": next_cursor}
+        if response is not None:
+            response.headers["X-Next-Cursor"] = next_cursor
+    return events
 
 
 @app.get("/events/{event_id:int}")

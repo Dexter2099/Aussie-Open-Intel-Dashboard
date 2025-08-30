@@ -36,6 +36,7 @@ class Event(BaseModel):
     confidence: Optional[float] = None
     severity: Optional[float] = None
     geom: Optional[Any] = Field(default=None, description="Point/Polygon geometry placeholder")
+    raw: Optional[Any] = None
 
 
 class Entity(BaseModel):

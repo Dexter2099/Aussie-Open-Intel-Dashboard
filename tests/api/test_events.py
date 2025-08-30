@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta, timezone
-
-import app.main as m
+import services.api.app.main as m
 
 
 def _seed_events():
@@ -56,6 +55,7 @@ def _seed_events():
 
 def test_events_filters(client, monkeypatch):
     events = _seed_events()
+    base = events[0]["detected_at"]
 
     def fake_fetch_all(sql, params=()):
         filtered = events
@@ -64,20 +64,32 @@ def test_events_filters(client, monkeypatch):
             typ = params[idx]
             idx += 1
             filtered = [e for e in filtered if e["event_type"] == typ]
-        if "e.title ILIKE %s" in sql:
-            term = params[idx].strip("% ").lower()
+        if "e.detected_at >= %s" in sql:
+            since = params[idx]
             idx += 1
-            filtered = [e for e in filtered if term in e["title"].lower()]
+            filtered = [e for e in filtered if e["detected_at"] >= since]
+        if "e.detected_at <= %s" in sql:
+            until = params[idx]
+            idx += 1
+            filtered = [e for e in filtered if e["detected_at"] <= until]
         limit = params[-1]
         filtered = sorted(filtered, key=lambda r: (r["detected_at"], r["id"]), reverse=True)
         return [dict(e) for e in filtered[:limit]]
 
     monkeypatch.setattr(m, "fetch_all", fake_fetch_all)
-    r = client.get("/events?type=Wildfire&q=Fire&limit=10")
+
+    since = (base - timedelta(hours=1)).isoformat()
+    until = (base + timedelta(minutes=5)).isoformat()
+    r = client.get(
+        "/events",
+        params={"type": "Wildfire", "since": since, "until": until, "limit": 10},
+    )
     assert r.status_code == 200
     data = r.json()
-    assert len(data["items"]) == 2
-    assert all(ev["event_type"] == "Wildfire" for ev in data["items"])
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["id"] == 1
+    assert "raw" not in data[0]
 
 
 def test_events_bbox_filter(client, monkeypatch):
@@ -101,11 +113,15 @@ def test_events_bbox_filter(client, monkeypatch):
         return [dict(e) for e in filtered[:limit]]
 
     monkeypatch.setattr(m, "fetch_all", fake_fetch_all)
-    r = client.get("/events?bbox=149.9,-30.1,150.1,-29.9&limit=10")
+
+    r = client.get(
+        "/events",
+        params={"bbox": "149.9,-30.1,150.1,-29.9", "limit": 10},
+    )
     assert r.status_code == 200
     data = r.json()
-    assert len(data["items"]) == 1
-    assert data["items"][0]["id"] == 1
+    assert len(data) == 1
+    assert data[0]["id"] == 1
 
 
 def test_events_cursor_pagination(client, monkeypatch):
@@ -123,15 +139,31 @@ def test_events_cursor_pagination(client, monkeypatch):
 
     monkeypatch.setattr(m, "fetch_all", fake_fetch_all)
 
-    r1 = client.get("/events?limit=1")
+    r1 = client.get("/events", params={"limit": 1})
     assert r1.status_code == 200
     page1 = r1.json()
-    assert len(page1["items"]) == 1
-    cursor = page1["next_cursor"]
+    assert len(page1) == 1
+    cursor = r1.headers.get("X-Next-Cursor")
+    assert cursor
 
-    r2 = client.get(f"/events?limit=1&cursor={cursor}")
+    r2 = client.get("/events", params={"limit": 1, "cursor": cursor})
     assert r2.status_code == 200
     page2 = r2.json()
-    assert len(page2["items"]) == 1
-    assert page2["items"][0]["id"] != page1["items"][0]["id"]
+    assert len(page2) == 1
+    assert page2[0]["id"] != page1[0]["id"]
 
+
+def test_include_raw(client, monkeypatch):
+    events = _seed_events()
+
+    def fake_fetch_all(sql, params=()):
+        limit = params[-1]
+        return [dict(events[0]) for _ in range(min(limit, 1))]
+
+    monkeypatch.setattr(m, "fetch_all", fake_fetch_all)
+
+    r = client.get("/events", params={"limit": 1, "include_raw": 1})
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 1
+    assert data[0]["raw"] == {"a": 1}
