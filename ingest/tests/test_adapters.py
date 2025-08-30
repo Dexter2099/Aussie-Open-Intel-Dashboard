@@ -141,6 +141,6 @@ def test_bom_warnings_adapter_normalizes_and_persists():
     events = bom_warnings_adapter.normalize(raw)
     assert events
     # All events should be weather type
-    assert all(ev.event_type == "Weather" for ev in events)
+    assert all(ev.event_type == "weather" for ev in events)
     count = _persist(events, bom_warnings_adapter.get_source_meta("http://example"))
     assert count == len(events)

@@ -52,7 +52,7 @@ def normalize(raw: RawPayload) -> List[NormalizedEvent]:
             NormalizedEvent(
                 title=title,
                 body=desc,
-                event_type="Weather",
+                event_type="weather",
                 occurred_at=occurred_dt,
                 jurisdiction=area,
             )
