@@ -1,9 +1,6 @@
 import axios from 'axios'
-codex/add-/graph-route-and-graphpage-component
-import type { Event, GraphData } from '../types'
 
-import type { Event, TimelineEvent } from '../types'
-main
+import type { Event, GraphData, TimelineEvent } from '../types'
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE || '/api',
@@ -14,14 +11,33 @@ export function fetchEvents(types: string) {
   return api.get<Event[]>(`/events?since=48h${typeParam}`)
 }
 
-codex/add-/graph-route-and-graphpage-component
 export function fetchGraph(entityId: string) {
   const param = entityId ? `?entity_id=${entityId}` : ''
   return api.get<GraphData>(`/graph${param}`)
-
-export async function fetchTimelineEvents(cursor?: string, limit = 50) {
-  const url = `/events?limit=${limit}${cursor ? `&cursor=${cursor}` : ''}`
-  const res = await api.get<TimelineEvent[]>(url)
-  return { events: res.data, nextCursor: res.headers['x-next-cursor'] as string | undefined }
-main
 }
+
+interface TimelineQuery {
+  cursor?: string
+  limit?: number
+  types?: string
+  since?: string
+}
+
+export async function fetchTimelineEvents({
+  cursor,
+  limit = 50,
+  types,
+  since,
+}: TimelineQuery) {
+  const params = new URLSearchParams()
+  params.set('limit', String(limit))
+  if (cursor) params.set('cursor', cursor)
+  if (since) params.set('since', since)
+  if (types) params.set('type', types)
+  const res = await api.get<TimelineEvent[]>(`/events?${params.toString()}`)
+  return {
+    events: res.data,
+    nextCursor: res.headers['x-next-cursor'] as string | undefined,
+  }
+}
+
