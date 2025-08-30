@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List, Literal, Any
 from datetime import datetime
+from uuid import UUID
 
 
 class Source(BaseModel):
@@ -48,21 +49,19 @@ class Entity(BaseModel):
 
 
 class Notebook(BaseModel):
-    id: int
-    owner: str
+    id: UUID
+    created_by: str
     title: str
-    items: list
     created_at: Optional[datetime] = None
+    items: list | None = None
 
 
 class NotebookCreate(BaseModel):
     title: str
-    items: list
 
 
 class NotebookUpdate(BaseModel):
     title: Optional[str] = None
-    items: Optional[list] = None
 
 
 class SearchQuery(BaseModel):

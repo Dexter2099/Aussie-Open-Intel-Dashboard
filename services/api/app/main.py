@@ -569,77 +569,232 @@ async def graph_event(event_id: int):
     return {"nodes": list(nodes.values()), "edges": edges}
 
 
-@app.get("/notebooks/{notebook_id}", response_model=Notebook)
-async def get_notebook(notebook_id: int, user: dict = Depends(get_current_user)):
-    row = fetch_one(
+@app.get("/notebooks", response_model=list[Notebook])
+async def list_notebooks(user: dict = Depends(get_current_user)):
+    rows = fetch_all(
         """
-        SELECT id, owner, title, items, created_at
+        SELECT id, created_by, title, created_at
         FROM notebooks
-        WHERE id=%s AND owner=%s
+        WHERE created_by=%s
+        ORDER BY created_at DESC
+        """,
+        (user.get("sub"),),
+    )
+    return rows
+
+
+@app.get("/notebooks/{notebook_id}", response_model=Notebook)
+async def get_notebook(notebook_id: UUID, user: dict = Depends(get_current_user)):
+    nb = fetch_one(
+        """
+        SELECT id, created_by, title, created_at
+        FROM notebooks
+        WHERE id=%s AND created_by=%s
         """,
         (notebook_id, user.get("sub")),
     )
-    if not row:
+    if not nb:
         raise HTTPException(status_code=404, detail="Notebook not found")
-    return row
+    items = fetch_all(
+        """
+        SELECT id, notebook_id, kind, ref_id, note, created_at
+        FROM notebook_items
+        WHERE notebook_id=%s
+        ORDER BY created_at ASC
+        """,
+        (notebook_id,),
+    )
+    nb["items"] = items
+    return nb
 
 
 @app.post("/notebooks", response_model=Notebook)
 async def create_notebook(nb: NotebookCreate, user: dict = Depends(get_current_user)):
+    new_id = uuid4()
     row = fetch_one(
         """
-        INSERT INTO notebooks (owner, title, items)
+        INSERT INTO notebooks (id, created_by, title)
         VALUES (%s, %s, %s)
-        RETURNING id, owner, title, items, created_at
+        RETURNING id, created_by, title, created_at
         """,
-        (user.get("sub"), nb.title, nb.items),
+        (new_id, user.get("sub"), nb.title),
     )
     return row
 
 
 @app.put("/notebooks/{notebook_id}", response_model=Notebook)
 async def update_notebook(
-    notebook_id: int, nb: NotebookUpdate, user: dict = Depends(get_current_user)
+    notebook_id: UUID, nb: NotebookUpdate, user: dict = Depends(get_current_user)
 ):
     row = fetch_one(
         """
         UPDATE notebooks
-        SET title = COALESCE(%s, title), items = COALESCE(%s, items)
-        WHERE id=%s AND owner=%s
-        RETURNING id, owner, title, items, created_at
+        SET title = COALESCE(%s, title)
+        WHERE id=%s AND created_by=%s
+        RETURNING id, created_by, title, created_at
         """,
-        (nb.title, nb.items, notebook_id, user.get("sub")),
+        (nb.title, notebook_id, user.get("sub")),
     )
     if not row:
         raise HTTPException(status_code=404, detail="Notebook not found")
     return row
 
 
+@app.delete("/notebooks/{notebook_id}")
+async def delete_notebook(notebook_id: UUID, user: dict = Depends(get_current_user)):
+    row = fetch_one(
+        """
+        DELETE FROM notebooks WHERE id=%s AND created_by=%s RETURNING id
+        """,
+        (notebook_id, user.get("sub")),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    return {"status": "deleted", "id": str(notebook_id)}
+
+
+@app.post("/notebooks/{notebook_id}/items")
+async def add_notebook_item(
+    notebook_id: UUID,
+    item: dict,
+    user: dict = Depends(get_current_user),
+):
+    # Expecting: {kind: 'event'|'entity', ref_id: UUID, note?: str}
+    kind = (item.get("kind") or "").lower()
+    if kind not in {"event", "entity"}:
+        raise HTTPException(status_code=400, detail="Invalid kind")
+    ref_id = item.get("ref_id")
+    if not ref_id:
+        raise HTTPException(status_code=400, detail="Missing ref_id")
+    note = item.get("note")
+    new_id = uuid4()
+    row = fetch_one(
+        """
+        INSERT INTO notebook_items (id, notebook_id, kind, ref_id, note)
+        SELECT %s, %s, %s, %s, %s
+        WHERE EXISTS (SELECT 1 FROM notebooks WHERE id=%s AND created_by=%s)
+        RETURNING id, notebook_id, kind, ref_id, note, created_at
+        """,
+        (new_id, notebook_id, kind, ref_id, note, notebook_id, user.get("sub")),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    return row
+
+
+@app.delete("/notebooks/{notebook_id}/items")
+async def delete_notebook_item(
+    notebook_id: UUID,
+    payload: dict,
+    user: dict = Depends(get_current_user),
+):
+    item_id = payload.get("item_id")
+    if not item_id:
+        raise HTTPException(status_code=400, detail="Missing item_id")
+    row = fetch_one(
+        """
+        DELETE FROM notebook_items WHERE id=%s AND notebook_id=%s AND EXISTS (
+            SELECT 1 FROM notebooks WHERE id=%s AND created_by=%s
+        ) RETURNING id
+        """,
+        (item_id, notebook_id, notebook_id, user.get("sub")),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"status": "deleted", "id": item_id}
+
+
 @app.get("/notebooks/{notebook_id}/export")
 async def export_notebook(
-    notebook_id: int, fmt: str = Query("md", pattern="^(md|markdown|json|pdf)$"), user: dict = Depends(get_current_user)
+    notebook_id: UUID, fmt: str = Query("md", pattern="^(md|markdown|json|pdf)$"), user: dict = Depends(get_current_user)
 ):
     nb = fetch_one(
         """
-        SELECT id, owner, title, items, created_at
+        SELECT id, created_by, title, created_at
         FROM notebooks
-        WHERE id=%s AND owner=%s
+        WHERE id=%s AND created_by=%s
         """,
         (notebook_id, user.get("sub")),
     )
     if not nb:
         raise HTTPException(status_code=404, detail="Notebook not found")
 
+    items = fetch_all(
+        """
+        SELECT id, kind, ref_id, note, created_at
+        FROM notebook_items
+        WHERE notebook_id=%s
+        ORDER BY created_at ASC
+        """,
+        (notebook_id,),
+    )
+
+    # Build a rich representation with sources and timestamps
+    enriched: list[dict] = []
+    for it in items:
+        if it.get("kind") == "event":
+            ev = fetch_one(
+                """
+                SELECT e.id, e.title, e.time, s.url AS source_url
+                FROM events e LEFT JOIN sources s ON s.id = e.source_id
+                WHERE e.id=%s
+                """,
+                (it.get("ref_id"),),
+            ) or {}
+            enriched.append(
+                {
+                    "kind": "event",
+                    "id": str(ev.get("id") or it.get("ref_id")),
+                    "title": ev.get("title"),
+                    "time": (ev.get("time").isoformat() if isinstance(ev.get("time"), datetime) else ev.get("time")),
+                    "source_url": ev.get("source_url"),
+                    "note": it.get("note"),
+                    "created_at": (it.get("created_at").isoformat() if isinstance(it.get("created_at"), datetime) else it.get("created_at")),
+                }
+            )
+        elif it.get("kind") == "entity":
+            en = fetch_one(
+                """SELECT id, type, name FROM entities WHERE id=%s""",
+                (it.get("ref_id"),),
+            ) or {}
+            enriched.append(
+                {
+                    "kind": "entity",
+                    "id": str(en.get("id") or it.get("ref_id")),
+                    "type": en.get("type"),
+                    "name": en.get("name"),
+                    "note": it.get("note"),
+                    "created_at": (it.get("created_at").isoformat() if isinstance(it.get("created_at"), datetime) else it.get("created_at")),
+                }
+            )
+        else:
+            enriched.append({"kind": it.get("kind"), "ref_id": str(it.get("ref_id")), "note": it.get("note")})
+
     if fmt in {"json"}:
-        return JSONResponse(nb)
+        payload = {
+            "id": str(nb["id"]),
+            "title": nb["title"],
+            "created_by": nb["created_by"],
+            "created_at": (nb["created_at"].isoformat() if isinstance(nb.get("created_at"), datetime) else nb.get("created_at")),
+            "items": enriched,
+        }
+        return JSONResponse(payload)
     if fmt in {"md", "markdown"}:
-        lines = [f"# {nb['title']}", ""]
-        for item in nb.get("items", []):
-            if isinstance(item, dict) and "event" in item:
-                lines.append(f"- Event {item['event']}")
+        lines = [f"# {nb['title']}", "", f"Created by: {nb['created_by']}", f"Created at: {(nb['created_at'].isoformat() if isinstance(nb.get('created_at'), datetime) else nb.get('created_at'))}", ""]
+        for it in enriched:
+            if it.get("kind") == "event":
+                when = it.get("time") or ""
+                src = it.get("source_url") or ""
+                note = f" — {it['note']}" if it.get("note") else ""
+                lines.append(f"- [Event] {it.get('title') or it.get('id')} ({when}) {src}{note}")
+            elif it.get("kind") == "entity":
+                note = f" — {it['note']}" if it.get("note") else ""
+                lines.append(f"- [Entity] {it.get('type')}: {it.get('name') or it.get('id')}{note}")
             else:
-                lines.append(f"- {item}")
-        return Response("\n".join(lines), media_type="text/markdown")
+                lines.append(f"- {it}")
+        # Ensure a trailing blank line
+        lines.append("")
+        return Response("\n".join(lines) + "\n", media_type="text/markdown")
     if fmt == "pdf":
         from io import BytesIO
         from reportlab.pdfgen import canvas
@@ -648,18 +803,34 @@ async def export_notebook(
         c = canvas.Canvas(buf)
         y = 800
         c.setFont("Helvetica-Bold", 16)
-        c.drawString(40, y, nb["title"])
+        c.drawString(40, y, f"Notebook: {nb['title']}")
+        y -= 20
+        c.setFont("Helvetica", 10)
+        c.drawString(40, y, f"Created by: {nb['created_by']}")
+        y -= 15
+        c.drawString(40, y, f"Created at: {(nb['created_at'].isoformat() if isinstance(nb.get('created_at'), datetime) else nb.get('created_at'))}")
+        y -= 30
         c.setFont("Helvetica", 12)
-        y -= 40
-        for item in nb.get("items", []):
-            text = (
-                f"- Event {item['event']}" if isinstance(item, dict) and "event" in item else f"- {item}"
-            )
+        for it in enriched:
+            if y < 60:
+                c.showPage()
+                y = 800
+                c.setFont("Helvetica", 12)
+            if it.get("kind") == "event":
+                text = f"- [Event] {it.get('title') or it.get('id')} ({it.get('time') or ''}) {it.get('source_url') or ''}"
+            elif it.get("kind") == "entity":
+                text = f"- [Entity] {it.get('type')}: {it.get('name') or it.get('id')}"
+            else:
+                text = f"- {it}"
+            if it.get("note"):
+                text += f" — {it.get('note')}"
             c.drawString(40, y, text)
-            y -= 20
+            y -= 18
         c.showPage()
         c.save()
         pdf_bytes = buf.getvalue()
+        if not pdf_bytes:
+            pdf_bytes = b"%PDF-1.4\n%%EOF\n"
         buf.close()
         return Response(content=pdf_bytes, media_type="application/pdf")
     raise HTTPException(status_code=400, detail="Unsupported format")
