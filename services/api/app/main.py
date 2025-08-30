@@ -387,6 +387,134 @@ async def get_entity(entity_id: UUID):
     return ent
 
 
+@app.get("/graph")
+async def graph(
+    entity_id: int = Query(..., description="Root entity id"),
+    max: int = Query(200, ge=1, le=1000),
+):
+    """Return a two-hop graph neighbourhood for an entity.
+
+    The graph consists of entity and event nodes. Edges connect entities to
+    events as well as entities to other entities when they co-occur in the
+    same event. Edge weights represent the number of co-occurrences. Each
+    entity node includes provenance_counts aggregated from event_entities.
+    """
+
+    # First hop: events linked to the root entity
+    ev_rows = fetch_all(
+        """
+        SELECT ee.event_id
+        FROM event_entities ee
+        WHERE ee.entity_id=%s
+        ORDER BY ee.event_id
+        LIMIT %s
+        """,
+        (entity_id, max),
+    )
+    event_ids = [r["event_id"] for r in ev_rows]
+    if not event_ids:
+        return {"nodes": [], "edges": []}
+
+    # Fetch all entity-event edges within these events
+    ee_rows = fetch_all(
+        """
+        SELECT ee.event_id, ee.entity_id, ee.relation
+        FROM event_entities ee
+        WHERE ee.event_id = ANY(%s)
+        LIMIT %s
+        """,
+        (event_ids, max),
+    )
+
+    entity_ids = sorted({row["entity_id"] for row in ee_rows})
+
+    # Entity details
+    ent_rows = fetch_all(
+        "SELECT id, type, name FROM entities WHERE id = ANY(%s)",
+        (entity_ids,),
+    )
+    ent_lookup = {r["id"]: r for r in ent_rows}
+
+    # Event details
+    evt_rows = fetch_all(
+        "SELECT id, event_type, title FROM events WHERE id = ANY(%s)",
+        (event_ids,),
+    )
+    evt_lookup = {r["id"]: r for r in evt_rows}
+
+    # Provenance counts per entity
+    prov_rows = fetch_all(
+        """
+        SELECT entity_id, relation, COUNT(*) AS c
+        FROM event_entities
+        WHERE event_id = ANY(%s)
+        GROUP BY entity_id, relation
+        """,
+        (event_ids,),
+    )
+    prov_counts: dict[int, dict[str, int]] = {}
+    for r in prov_rows:
+        prov_counts.setdefault(r["entity_id"], {})[r["relation"]] = r["c"]
+
+    nodes = []
+    for eid in entity_ids:
+        ent = ent_lookup.get(eid, {})
+        nodes.append(
+            {
+                "id": eid,
+                "type": "entity",
+                "entity_type": ent.get("type"),
+                "name": ent.get("name"),
+                "provenance_counts": prov_counts.get(eid, {}),
+            }
+        )
+    for eid in event_ids:
+        ev = evt_lookup.get(eid, {})
+        nodes.append(
+            {
+                "id": eid,
+                "type": "event",
+                "event_type": ev.get("event_type"),
+                "title": ev.get("title"),
+            }
+        )
+
+    edges = []
+    for r in ee_rows:
+        edges.append(
+            {
+                "source": r["entity_id"],
+                "target": r["event_id"],
+                "type": "entity-event",
+                "relation": r.get("relation"),
+                "weight": 1,
+            }
+        )
+
+    pair_rows = fetch_all(
+        """
+        SELECT ee1.entity_id AS src, ee2.entity_id AS dst, COUNT(*) AS weight
+        FROM event_entities ee1
+        JOIN event_entities ee2 ON ee1.event_id = ee2.event_id
+        WHERE ee1.entity_id < ee2.entity_id AND ee1.event_id = ANY(%s)
+        GROUP BY src, dst
+        LIMIT %s
+        """,
+        (event_ids, max),
+    )
+    for r in pair_rows:
+        edges.append(
+            {
+                "source": r["src"],
+                "target": r["dst"],
+                "type": "entity-entity",
+                "weight": r["weight"],
+            }
+        )
+
+    return {"nodes": nodes, "edges": edges}
+
+
 @app.get("/graph/entity/{entity_id}")
 async def graph_entity(entity_id: int):
     ent = fetch_one("SELECT id, type, name FROM entities WHERE id=%s", (entity_id,))

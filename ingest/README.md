@@ -16,3 +16,18 @@ This folder will hold source adapters and cron/worker code for fetching AU-focus
 
 Adapters should write raw payloads to object storage and normalized events to Postgres.
 
+
+### Scheduled Runner
+
+`python -m ingest.run_all` uses APScheduler to run enabled adapters on an interval.
+Enable adapters and set their schedule via environment variables:
+
+```
+ENABLE_ACSC=true
+ACSC_INTERVAL_MINUTES=15
+ENABLE_BOM=true
+BOM_INTERVAL_MINUTES=15
+```
+
+The runner logs progress in structured JSON and uses database advisory locks so
+repeated executions do not insert duplicates.
