@@ -2,7 +2,6 @@ import os
 import uuid
 from datetime import datetime
 from pathlib import Path
-import subprocess
 
 import psycopg
 import pytest
@@ -13,17 +12,20 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.fixture(scope="module")
 def db_conn():
     dsn = "postgresql://aoidb:aoidb@localhost/aoidb"
-    env = os.environ.copy()
-    env["DATABASE_URL"] = dsn
-    subprocess.run(["alembic", "upgrade", "0003"], cwd=ROOT, check=True, env=env)
-    os.environ["DATABASE_URL"] = dsn
     conn = psycopg.connect(dsn)
+    migrations = ROOT / "db" / "migrations"
+    with conn.cursor() as cur:
+        for path in sorted(migrations.glob("*.sql")):
+            cur.execute(path.read_text())
+    conn.commit()
+    os.environ["DATABASE_URL"] = dsn
     yield conn
     conn.close()
 
 
 def test_upsert_event(db_conn):
-    from app.db import upsert_event, fetch_one
+    from db.events import upsert_event
+    from db import fetch_one
 
     event_id = uuid.uuid4()
     upsert_event(
