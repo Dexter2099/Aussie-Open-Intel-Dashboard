@@ -1,20 +1,49 @@
 import { useEffect, useState } from 'react'
 import { fetchTimelineEvents } from '../lib/api'
+codex/add-filters-to-timeline-page
+import type { EventType, TimelineEvent } from '../types'
+
+const EVENT_TYPES: EventType[] = ['bushfire', 'weather', 'maritime', 'cyber', 'news']
+const TYPE_CHIPS = [
+  { key: 'all', label: 'All' },
+  ...EVENT_TYPES.map((t) => ({
+    key: t,
+    label: t.charAt(0).toUpperCase() + t.slice(1),
+  })),
+]
+
+const RANGES = [
+  { value: '24h', label: 'Last 24h' },
+  { value: '48h', label: 'Last 48h' },
+  { value: '7d', label: 'Last 7d' },
+  { value: '30d', label: 'Last 30d' },
+]
+
 import EventDrawer from '../components/EventDrawer'
 import type { TimelineEvent } from '../types'
+main
 
 export default function TimelinePage() {
   const [events, setEvents] = useState<TimelineEvent[]>([])
   const [cursor, setCursor] = useState<string | undefined>()
   const [loading, setLoading] = useState(false)
-  const [openId, setOpenId] = useState<string | null>(null)
+codex/add-filters-to-timeline-page
+  const [selectedTypes, setSelectedTypes] = useState<EventType[]>([...EVENT_TYPES])
+  const [since, setSince] = useState('48h')
 
-  const loadMore = () => {
+  const typeQuery =
+    selectedTypes.length === EVENT_TYPES.length ? undefined : selectedTypes.join('|')
+=======
+  const [openId, setOpenId] = useState<string | null>(null)
+main
+
+  const loadMore = (reset = false) => {
     if (loading) return
     setLoading(true)
-    fetchTimelineEvents(cursor)
+    const currentCursor = reset ? undefined : cursor
+    fetchTimelineEvents({ cursor: currentCursor, types: typeQuery, since })
       .then(({ events: newEvents, nextCursor }) => {
-        setEvents((prev) => [...prev, ...newEvents])
+        setEvents((prev) => (reset ? newEvents : [...prev, ...newEvents]))
         setCursor(nextCursor)
       })
       .catch((err) => console.error(err))
@@ -22,33 +51,99 @@ export default function TimelinePage() {
   }
 
   useEffect(() => {
-    loadMore()
+    loadMore(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [typeQuery, since])
+
+  const toggleType = (key: string) => {
+    if (key === 'all') {
+      setSelectedTypes([...EVENT_TYPES])
+    } else {
+      setSelectedTypes((prev) =>
+        prev.includes(key as EventType)
+          ? prev.filter((t) => t !== key)
+          : [...prev, key as EventType]
+      )
+    }
+  }
 
   return (
     <div style={{ padding: '1rem' }}>
-      {events.map((ev) => (
-        <div
-          key={ev.id}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            padding: '0.5rem 0',
-            borderBottom: '1px solid #ddd',
-          }}
+      <div style={{ marginBottom: '0.5rem' }}>
+        {TYPE_CHIPS.map(({ key, label }) => {
+          const active =
+            key === 'all'
+              ? selectedTypes.length === EVENT_TYPES.length
+              : selectedTypes.includes(key as EventType)
+          return (
+            <button
+              key={key}
+              onClick={() => toggleType(key)}
+              style={{
+                marginRight: '0.5rem',
+                padding: '0.25rem 0.5rem',
+                borderRadius: '16px',
+                border: '1px solid #ccc',
+                backgroundColor: active ? '#1976d2' : '#e0e0e0',
+                color: active ? '#fff' : '#000',
+                cursor: 'pointer',
+              }}
+            >
+              {label}
+            </button>
+          )
+        })}
+        <select
+          value={since}
+          onChange={(e) => setSince(e.target.value)}
+          style={{ marginLeft: '1rem' }}
         >
-          <div style={{ width: '12rem', marginRight: '1rem' }}>
-            {new Date(ev.detected_at).toLocaleString()}
-          </div>
-          <span
+          {RANGES.map((r) => (
+            <option key={r.value} value={r.value}>
+              {r.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      {loading && events.length === 0 ? (
+        <div>Loading...</div>
+      ) : (
+        events.map((ev) => (
+          <div
+            key={ev.id}
             style={{
-              marginRight: '1rem',
-              padding: '0.25rem 0.5rem',
-              borderRadius: '4px',
-              backgroundColor: '#e0e0e0',
+              display: 'flex',
+              alignItems: 'center',
+              padding: '0.5rem 0',
+              borderBottom: '1px solid #ddd',
             }}
           >
+codex/add-filters-to-timeline-page
+            <div style={{ width: '12rem', marginRight: '1rem' }}>
+              {new Date(ev.detected_at).toLocaleString()}
+            </div>
+            <span
+              style={{
+                marginRight: '1rem',
+                padding: '0.25rem 0.5rem',
+                borderRadius: '4px',
+                backgroundColor: '#e0e0e0',
+              }}
+            >
+              {ev.event_type}
+            </span>
+            <div style={{ flex: 1 }}>{ev.title}</div>
+            <button
+              type="button"
+              onClick={() => console.log('Add to Notebook', ev.id)}
+              style={{ marginLeft: '1rem' }}
+            >
+              Add to Notebook
+            </button>
+          </div>
+        ))
+      )}
+
             {ev.event_type}
           </span>
           <div style={{ flex: 1 }}>{ev.title}</div>
@@ -68,9 +163,10 @@ export default function TimelinePage() {
           </button>
         </div>
       ))}
+main
       {cursor && (
         <div style={{ textAlign: 'center', marginTop: '1rem' }}>
-          <button type="button" onClick={loadMore} disabled={loading}>
+          <button type="button" onClick={() => loadMore()} disabled={loading}>
             {loading ? 'Loading...' : 'Load More'}
           </button>
         </div>
