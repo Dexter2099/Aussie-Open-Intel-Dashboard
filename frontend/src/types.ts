@@ -13,3 +13,20 @@ export interface Event {
   entities: string[]
   source: string
 }
+
+export interface GraphNode {
+  id: string
+  label: string
+  kind: 'entity' | 'event'
+}
+
+export interface GraphLink {
+  source: string
+  target: string
+  weight: number
+}
+
+export interface GraphData {
+  nodes: GraphNode[]
+  links: GraphLink[]
+}
