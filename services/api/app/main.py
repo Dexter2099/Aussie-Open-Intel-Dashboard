@@ -1,5 +1,5 @@
 import logging
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import structlog
 from structlog.contextvars import bind_contextvars, clear_contextvars
@@ -326,9 +326,65 @@ async def get_event(event_id: int, debug_geom: int = 0):
     return row
 
 
-@app.get("/entities/{entity_id}", response_model=Entity)
-async def get_entity(entity_id: int):
-    return {"id": entity_id, "type": "Org", "name": "Placeholder Org", "attrs": {}}
+@app.get("/events/{event_id:uuid}")
+async def get_event_detail(event_id: UUID, include_raw: int = 0):
+    row = fetch_one(
+        """
+        SELECT id, type, title, time,
+               CASE WHEN location IS NOT NULL THEN ST_X(location::geometry) END AS lon,
+               CASE WHEN location IS NOT NULL THEN ST_Y(location::geometry) END AS lat,
+               source, raw
+        FROM events
+        WHERE id=%s
+        """,
+        (event_id,),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Event not found")
+    entities = fetch_all(
+        """
+        SELECT e.id, e.type AS kind, e.name AS label
+        FROM event_entities ee
+        JOIN entities e ON e.id = ee.entity_id
+        WHERE ee.event_id=%s
+        """,
+        (event_id,),
+    )
+    lon = row.pop("lon", None)
+    lat = row.pop("lat", None)
+    location = None
+    if lon is not None and lat is not None:
+        location = {"type": "Point", "coordinates": [lon, lat]}
+    raw = row.pop("raw", None)
+    event = dict(row)
+    event["location"] = location
+    event["entities"] = entities
+    if include_raw:
+        event["raw"] = raw
+    return event
+
+
+@app.get("/entities/{entity_id:uuid}")
+async def get_entity(entity_id: UUID):
+    ent = fetch_one(
+        """SELECT id, type AS kind, name AS label FROM entities WHERE id=%s""",
+        (entity_id,),
+    )
+    if not ent:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    events = fetch_all(
+        """
+        SELECT e.id, e.type, e.title, e.time
+        FROM event_entities ee
+        JOIN events e ON e.id = ee.event_id
+        WHERE ee.entity_id=%s
+        ORDER BY e.time DESC
+        LIMIT 20
+        """,
+        (entity_id,),
+    )
+    ent["events"] = events
+    return ent
 
 
 @app.get("/graph")
