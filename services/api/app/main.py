@@ -10,6 +10,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
+import base64
+import os
 
 from .schemas import (
     Event,
@@ -189,6 +191,93 @@ async def search(
         "query": {"q": q, "bbox": bbox, "time_range": time_range, "limit": clamped_limit, "offset": clamped_offset, "sort": sort_col},
         "results": rows,
     }
+
+
+@app.get("/events")
+async def list_events(
+    type: Optional[str] = None,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    bbox: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=100),
+    cursor: Optional[str] = None,
+    include_raw: int = 0,
+):
+    clauses: List[str] = []
+    params: List = []
+
+    if type:
+        clauses.append("e.event_type = %s")
+        params.append(type)
+    if since:
+        clauses.append("e.detected_at >= %s")
+        params.append(since)
+    if until:
+        clauses.append("e.detected_at <= %s")
+        params.append(until)
+    if q:
+        clauses.append("e.title ILIKE %s")
+        params.append(f"%{q}%")
+    if bbox:
+        try:
+            minlon, minlat, maxlon, maxlat = [float(x) for x in bbox.split(",")]
+            if os.getenv("USE_POSTGIS", "1") == "1":
+                clauses.append(
+                    "e.geom IS NOT NULL AND ST_Intersects(e.geom, geography(ST_MakeEnvelope(%s,%s,%s,%s,4326)))"
+                )
+            else:
+                clauses.append(
+                    "e.geom IS NOT NULL AND ST_X(e.geom::geometry) BETWEEN %s AND %s AND ST_Y(e.geom::geometry) BETWEEN %s AND %s"
+                )
+            params.extend([minlon, minlat, maxlon, maxlat])
+        except Exception:
+            pass
+    if cursor:
+        try:
+            dec = base64.urlsafe_b64decode(cursor.encode()).decode()
+            ts_s, id_s = dec.split("|", 1)
+            cur_ts = datetime.fromisoformat(ts_s)
+            cur_id = int(id_s)
+            clauses.append("(e.detected_at, e.id) < (%s, %s)")
+            params.extend([cur_ts, cur_id])
+        except Exception:
+            pass
+
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    raw_col = ", e.raw" if include_raw else ""
+    sql = f"""
+        SELECT e.id, e.source_id, e.title, e.body, e.event_type, e.occurred_at, e.detected_at,
+               e.jurisdiction, e.confidence, e.severity,
+               CASE WHEN e.geom IS NOT NULL THEN ST_X(e.geom::geometry) END AS lon,
+               CASE WHEN e.geom IS NOT NULL THEN ST_Y(e.geom::geometry) END AS lat{raw_col}
+        FROM events e
+        {where}
+        ORDER BY e.detected_at DESC, e.id DESC
+        LIMIT %s
+    """
+    params.append(limit)
+    rows = fetch_all(sql, params)
+    events = []
+    for r in rows:
+        lon = r.pop("lon", None)
+        lat = r.pop("lat", None)
+        geom = None
+        if lon is not None and lat is not None:
+            geom = {"type": "Point", "coordinates": [lon, lat]}
+        raw = r.pop("raw", None)
+        evt = dict(r)
+        evt["geom"] = geom
+        if include_raw:
+            evt["raw"] = raw
+        events.append(evt)
+    next_cursor = None
+    if len(rows) == limit:
+        last = rows[-1]
+        next_cursor = base64.urlsafe_b64encode(
+            f"{last['detected_at'].isoformat()}|{last['id']}".encode()
+        ).decode()
+    return {"items": events, "next_cursor": next_cursor}
 
 
 @app.get("/events/{event_id:int}")
