@@ -36,6 +36,7 @@ def test_event_detail(client, monkeypatch):
     assert data["id"] == str(eid)
     assert data["location"]["coordinates"] == [150.0, -30.0]
     assert len(data["entities"]) == 2
+    assert data["source"] == "sensor"
     assert data["raw"] == {"a": 1}
 
 

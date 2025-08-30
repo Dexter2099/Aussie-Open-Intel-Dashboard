@@ -63,17 +63,25 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
 
 def _extract_entities(text: str) -> Iterable[Tuple[str, str, str]]:
-    """Yield (kind, label, provenance) tuples from ``text``."""
+    """Yield ``(kind, label, provenance)`` tuples extracted from ``text``.
+
+    The function performs two stages of extraction:
+
+    1. Named entities via spaCy.  Only ``ORG``, ``PERSON`` and ``GPE``
+       entities are emitted.  The ``kind`` returned matches the spaCy label
+       so downstream consumers can reason about it without additional
+       mapping.
+    2. Regular-expression based extraction of maritime identifiers, namely
+       ``mmsi:<digits>`` and ``imo:<digits>``.
+    """
+
     doc = NLP(text)
     for ent in doc.ents:
-        if ent.label_ in {"ORG", "PERSON", "GPE", "LOC"}:
-            kind = {
-                "ORG": "ORG",
-                "PERSON": "PER",
-                "GPE": "LOC",
-                "LOC": "LOC",
-            }[ent.label_]
-            yield kind, ent.text, "ner"
+        if ent.label_ in {"ORG", "PERSON", "GPE"}:
+            # provenance ``ner`` indicates the entity came from spaCy
+            yield ent.label_, ent.text, "ner"
+
+    # Regex based maritime identifiers
     for m in MMSI_RE.finditer(text):
         yield "MMSI", m.group(1), "regex"
     for m in IMO_RE.finditer(text):
@@ -117,12 +125,18 @@ def _link_event_entity(
 
 
 def process_event(conn: sqlite3.Connection, event: sqlite3.Row) -> None:
+    """Extract and link entities for a single event record."""
+
     raw = event["raw"] or "{}"
     try:
-        description = json.loads(raw).get("description", "")
+        payload = json.loads(raw)
     except Exception:
-        description = ""
-    text = f"{event['title']} {description}".strip()
+        payload = {}
+
+    # Prefer ``summary`` but fall back to ``description`` if absent.
+    summary = payload.get("summary") or payload.get("description") or ""
+    text = f"{event['title']} {summary}".strip()
+
     for kind, label, prov in _extract_entities(text):
         ent_id = _upsert_entity(conn, kind, label)
         confidence = 0.9 if prov == "regex" else 0.8

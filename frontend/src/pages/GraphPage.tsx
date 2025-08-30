@@ -3,16 +3,16 @@ import { useSearchParams } from 'react-router-dom'
 import { select } from 'd3-selection'
 import { drag } from 'd3-drag'
 import { forceCenter, forceLink, forceManyBody, forceSimulation } from 'd3-force'
-import type { GraphData, GraphNode, GraphLink } from '../types'
+import type { GraphData, GraphNode, GraphEdge } from '../types'
 import { fetchGraph } from '../lib/api'
 
 const SAMPLE_GRAPH: GraphData = {
   nodes: [
-    { id: 'e1', label: 'Entity 1', kind: 'entity' },
-    { id: 'e2', label: 'Entity 2', kind: 'entity' },
-    { id: 'ev1', label: 'Event 1', kind: 'event' },
+    { id: 'e1', label: 'Entity 1', kind: 'entity', type: 'Org' },
+    { id: 'e2', label: 'Entity 2', kind: 'entity', type: 'Org' },
+    { id: 'ev1', label: 'Event 1', kind: 'event', type: 't' },
   ],
-  links: [
+  edges: [
     { source: 'e1', target: 'ev1', weight: 2 },
     { source: 'e2', target: 'ev1', weight: 1 },
   ],
@@ -30,7 +30,7 @@ export default function GraphPage() {
       try {
         const res = await fetchGraph(entityId)
         setData(res.data)
-      } catch (e) {
+      } catch {
         setData(SAMPLE_GRAPH)
       }
     }
@@ -47,22 +47,22 @@ export default function GraphPage() {
     const simulation = forceSimulation<GraphNode>(data.nodes)
       .force(
         'link',
-        forceLink<GraphNode, GraphLink>(data.links).id((d) => d.id).distance(80)
+        forceLink<GraphNode, GraphEdge>(data.edges).id((d) => d.id).distance(80)
       )
       .force('charge', forceManyBody().strength(-200))
       .force('center', forceCenter(width / 2, height / 2))
 
-    const link = svg
+    const edge = svg
       .append('g')
       .attr('stroke', '#999')
       .attr('stroke-opacity', 0.6)
       .selectAll('line')
-      .data(data.links)
+      .data(data.edges)
       .enter()
       .append('line')
       .attr('stroke-width', 1.5)
 
-    link.append('title').text((d) => `weight: ${d.weight}`)
+    edge.append('title').text((d) => `weight: ${d.weight}`)
 
     const node = svg
       .append('g')
@@ -87,6 +87,13 @@ export default function GraphPage() {
             d.fy = null
           })
       )
+      .on('mouseover', function () {
+        select(this).selectAll('circle,rect').attr('stroke', '#000')
+      })
+      .on('mouseout', function () {
+        if (selected && select(this).datum() === selected) return
+        select(this).selectAll('circle,rect').attr('stroke', null)
+      })
       .on('click', (_event, d) => {
         setSelected(d)
         node
@@ -111,7 +118,7 @@ export default function GraphPage() {
     node.append('title').text((d) => d.label)
 
     simulation.on('tick', () => {
-      link
+      edge
         .attr('x1', (d: any) => (typeof d.source === 'string' ? 0 : d.source.x))
         .attr('y1', (d: any) => (typeof d.source === 'string' ? 0 : d.source.y))
         .attr('x2', (d: any) => (typeof d.target === 'string' ? 0 : d.target.x))
@@ -121,7 +128,7 @@ export default function GraphPage() {
     })
 
     return () => simulation.stop()
-  }, [data])
+  }, [data, selected])
 
   return (
     <>
@@ -159,14 +166,9 @@ function NodeDrawer({
 
   if (!node || !graph) return null
 
-  const getId = (n: string | GraphNode) => (typeof n === 'string' ? n : n.id)
-  const relatedIds = graph.links
-    .filter(
-      (l) => getId(l.source) === node.id || getId(l.target) === node.id
-    )
-    .map((l) =>
-      getId(l.source) === node.id ? getId(l.target) : getId(l.source)
-    )
+  const relatedIds = graph.edges
+    .filter((e) => e.source === node.id || e.target === node.id)
+    .map((e) => (e.source === node.id ? e.target : e.source))
   const related = relatedIds
     .map((id) => graph.nodes.find((n) => n.id === id)!)
     .filter(Boolean)
@@ -206,6 +208,7 @@ function NodeDrawer({
       <h2 style={{ marginTop: 0 }}>{node.label}</h2>
       <div>ID: {node.id}</div>
       <div>Kind: {node.kind}</div>
+      {node.type && <div>Type: {node.type}</div>}
       <div style={{ marginTop: '0.5rem' }}>Related:</div>
       <ul>
         {related.map((r) => (

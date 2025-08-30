@@ -15,11 +15,8 @@ def db_conn():
     try:
         conn = psycopg.connect(dsn)
     except psycopg.OperationalError:
- codex/add-event-and-entity-detail-endpoints
-        pytest.skip("database not available")
-
         pytest.skip("PostgreSQL server not available")
- main
+
     migrations = ROOT / "db" / "migrations"
     with conn.cursor() as cur:
         for path in sorted(migrations.glob("*.sql")):

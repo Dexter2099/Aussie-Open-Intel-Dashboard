@@ -20,5 +20,5 @@ class NormalizedEvent(BaseModel):
     severity: Optional[float] = None
     lat: Optional[float] = Field(default=None, description="Latitude, WGS84")
     lon: Optional[float] = Field(default=None, description="Longitude, WGS84")
-    attrs: Dict[str, Any] = {}
+    attrs: Dict[str, Any] = Field(default_factory=dict)
 
