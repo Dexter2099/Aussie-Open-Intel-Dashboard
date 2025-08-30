@@ -1,6 +1,5 @@
 import logging
-from uuid import uuid4
-
+from uuid import uuid4, UUID
 import structlog
 from structlog.contextvars import bind_contextvars, clear_contextvars
 from fastapi import FastAPI, Query, HTTPException, Depends, Request, Response
@@ -12,19 +11,18 @@ from typing import Optional, List
 from datetime import datetime
 import base64
 import os
-
 from .schemas import (
     Event,
     Entity,
     Notebook,
     NotebookCreate,
     NotebookUpdate,
+    NotebookItemCreate,
     SearchQuery,
 )
 from .db import fetch_all, fetch_one
 from .auth import get_current_user, create_access_token
 from .routes import router as v1_router
-
 logging.basicConfig(level=logging.INFO)
 structlog.configure(
     processors=[
@@ -35,13 +33,11 @@ structlog.configure(
     ]
 )
 logger = structlog.get_logger()
-
 app = FastAPI(
     title="Aussie Open Intelligence API",
     default_response_class=ORJSONResponse,
     dependencies=[Depends(get_current_user)],
 )
-
 # Permissive CORS for early development; tighten later
 app.add_middleware(
     CORSMiddleware,
@@ -50,29 +46,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # Mount v1 API routes
 app.include_router(v1_router)
-
-
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
-
-
 @app.post("/token", response_model=Token, include_in_schema=True)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     """Issue a JWT for the supplied credentials.
-
     This is a stub implementation that accepts any username and password and
     returns a signed JWT identifying the user by ``sub``.
     """
-
     user = {"sub": form_data.username}
     token = create_access_token(user)
     return {"access_token": token, "token_type": "bearer"}
-
-
 @app.middleware("http")
 async def add_context(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID", str(uuid4()))
@@ -86,8 +73,6 @@ async def add_context(request: Request, call_next):
         status_code=response.status_code,
     )
     return response
-
-
 @app.exception_handler(Exception)
 async def handle_exceptions(request: Request, exc: Exception):
     logger.error("unhandled_error", error=str(exc))
@@ -95,18 +80,12 @@ async def handle_exceptions(request: Request, exc: Exception):
         status_code=500,
         content={"detail": "Internal Server Error"},
     )
-
-
 @app.get("/health")
 async def health():
     return {"status": "ok", "ts": datetime.utcnow().isoformat()}
-
-
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
-
-
 @app.get("/search")
 async def search(
     q: Optional[str] = None,
@@ -120,13 +99,11 @@ async def search(
 ):
     params: List = []
     clauses: List[str] = []
-
     # Text filter
     if q:
         clauses.append("(title ILIKE %s OR body ILIKE %s)")
         like = f"%{q}%"
         params.extend([like, like])
-
     # Time range filter: "start..end" (ISO8601); each side optional
     if time_range:
         try:
@@ -154,7 +131,6 @@ async def search(
         if end_dt:
             clauses.append("detected_at <= %s")
             params.append(end_dt)
-
     # BBOX filter: "minLon,minLat,maxLon,maxLat"
     if bbox:
         try:
@@ -163,12 +139,10 @@ async def search(
             params.extend([minlon, minlat, maxlon, maxlat])
         except Exception:
             pass
-
     # Source filter
     if source_id:
         clauses.append("source_id = %s")
         params.append(int(source_id))
-
     clamped_limit = max(1, min(int(limit or 50), 500))
     clamped_offset = max(0, int(offset or 0))
     sort_col = "detected_at" if (sort not in {"detected_at", "occurred_at"}) else sort
@@ -191,8 +165,6 @@ async def search(
         "query": {"q": q, "bbox": bbox, "time_range": time_range, "limit": clamped_limit, "offset": clamped_offset, "sort": sort_col},
         "results": rows,
     }
-
-
 @app.get("/events", response_model=List[Event], response_model_exclude_none=True)
 async def list_events(
     response: Response,
@@ -206,18 +178,14 @@ async def list_events(
     include_raw: int = 0,
 ):
     """Return a slice of events filtered by the supplied query params.
-
     The results are ordered by ``detected_at`` and ``id`` descending to allow
     stable cursor based pagination.  A ``cursor`` for the next page is returned
     in the ``X-Next-Cursor`` header when another page of results is available.
-
     The SQL query uses indexed columns (``event_type`` and ``detected_at``) and
     optionally PostGIS spatial indexes when available.
     """
-
     clauses: List[str] = []
     params: List = []
-
     if type:
         clauses.append("e.event_type = %s")
         params.append(type)
@@ -254,7 +222,6 @@ async def list_events(
             params.extend([cur_ts, cur_id])
         except Exception:
             pass
-
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     raw_col = ", e.raw" if include_raw else ""
     sql = f"""
@@ -290,8 +257,6 @@ async def list_events(
         if response is not None:
             response.headers["X-Next-Cursor"] = next_cursor
     return events
-
-
 @app.get("/events/{event_id:int}")
 async def get_event(event_id: int, debug_geom: int = 0):
     if debug_geom:
@@ -324,13 +289,9 @@ async def get_event(event_id: int, debug_geom: int = 0):
     if not row:
         raise HTTPException(status_code=404, detail="Event not found")
     return row
-
-
 @app.get("/entities/{entity_id}", response_model=Entity)
 async def get_entity(entity_id: int):
     return {"id": entity_id, "type": "Org", "name": "Placeholder Org", "attrs": {}}
-
-
 @app.get("/graph/entity/{entity_id}")
 async def graph_entity(entity_id: int):
     ent = fetch_one("SELECT id, type, name FROM entities WHERE id=%s", (entity_id,))
@@ -359,8 +320,6 @@ async def graph_entity(entity_id: int):
                 nodes[eid] = {"id": eid, "label": f"{etype}: {name}"}
         edges.append({"src": r["src_entity"], "dst": r["dst_entity"], "relation": r["relation"]})
     return {"nodes": list(nodes.values()), "edges": edges}
-
-
 @app.get("/graph/event/{event_id}")
 async def graph_event(event_id: int):
     ev = fetch_one("SELECT id, title FROM events WHERE id=%s", (event_id,))
@@ -383,104 +342,215 @@ async def graph_event(event_id: int):
             nodes[eid] = {"id": eid, "label": f"{r['type']}: {r['name']}"}
         edges.append({"src": event_id, "dst": eid, "relation": r["relation"]})
     return {"nodes": list(nodes.values()), "edges": edges}
-
-
-@app.get("/notebooks/{notebook_id}", response_model=Notebook)
-async def get_notebook(notebook_id: int, user: dict = Depends(get_current_user)):
-    row = fetch_one(
+@app.get("/notebooks", response_model=list[Notebook])
+async def list_notebooks(user: dict = Depends(get_current_user)):
+    rows = fetch_all(
         """
-        SELECT id, owner, title, items, created_at
+        SELECT id, title, created_by, created_at
         FROM notebooks
-        WHERE id=%s AND owner=%s
+        WHERE created_by=%s
+        ORDER BY created_at DESC
         """,
-        (notebook_id, user.get("sub")),
+        (user.get("sub"),),
     )
-    if not row:
+    for r in rows:
+        r["items"] = []
+    return rows
+def _get_notebook(nb_id: UUID, user: dict):
+    nb = fetch_one(
+        """
+        SELECT id, title, created_by, created_at
+        FROM notebooks
+        WHERE id=%s AND created_by=%s
+        """,
+        (str(nb_id), user.get("sub")),
+    )
+    if not nb:
+        return None
+    rows = fetch_all(
+        """
+        SELECT ni.id, ni.kind, ni.ref_id, ni.note, ni.created_at,
+               e.title AS event_title,
+               e.occurred_at AS event_occurred_at,
+               e.detected_at AS event_detected_at,
+               s.url AS source_url,
+               en.name AS entity_name,
+               en.type AS entity_type
+        FROM notebook_items ni
+        LEFT JOIN events e ON ni.kind='event' AND e.id=ni.ref_id
+        LEFT JOIN sources s ON e.source_id = s.id
+        LEFT JOIN entities en ON ni.kind='entity' AND en.id=ni.ref_id
+        WHERE ni.notebook_id=%s
+        ORDER BY ni.created_at
+        """,
+        (str(nb_id),),
+    )
+    items = []
+    for r in rows:
+        item = {
+            "id": r["id"],
+            "kind": r["kind"],
+            "ref_id": r["ref_id"],
+            "note": r.get("note"),
+            "created_at": r.get("created_at"),
+        }
+        if r["kind"] == "event":
+            item["event"] = {
+                "id": r["ref_id"],
+                "title": r.get("event_title"),
+                "occurred_at": r.get("event_occurred_at"),
+                "detected_at": r.get("event_detected_at"),
+                "source_url": r.get("source_url"),
+            }
+        elif r["kind"] == "entity":
+            item["entity"] = {
+                "id": r["ref_id"],
+                "name": r.get("entity_name"),
+                "type": r.get("entity_type"),
+            }
+        items.append(item)
+    nb["items"] = items
+    return nb
+@app.get("/notebooks/{notebook_id}", response_model=Notebook)
+async def get_notebook(notebook_id: UUID, user: dict = Depends(get_current_user)):
+    nb = _get_notebook(notebook_id, user)
+    if not nb:
         raise HTTPException(status_code=404, detail="Notebook not found")
-    return row
-
-
+    return nb
 @app.post("/notebooks", response_model=Notebook)
 async def create_notebook(nb: NotebookCreate, user: dict = Depends(get_current_user)):
+    nb_id = uuid4()
     row = fetch_one(
         """
-        INSERT INTO notebooks (owner, title, items)
+        INSERT INTO notebooks (id, title, created_by)
         VALUES (%s, %s, %s)
-        RETURNING id, owner, title, items, created_at
+        RETURNING id, title, created_by, created_at
         """,
-        (user.get("sub"), nb.title, nb.items),
+        (str(nb_id), nb.title, user.get("sub")),
     )
+    row["items"] = []
     return row
-
-
 @app.put("/notebooks/{notebook_id}", response_model=Notebook)
-async def update_notebook(
-    notebook_id: int, nb: NotebookUpdate, user: dict = Depends(get_current_user)
-):
+async def update_notebook(notebook_id: UUID, nb: NotebookUpdate, user: dict = Depends(get_current_user)):
     row = fetch_one(
         """
         UPDATE notebooks
-        SET title = COALESCE(%s, title), items = COALESCE(%s, items)
-        WHERE id=%s AND owner=%s
-        RETURNING id, owner, title, items, created_at
+        SET title = COALESCE(%s, title)
+        WHERE id=%s AND created_by=%s
+        RETURNING id, title, created_by, created_at
         """,
-        (nb.title, nb.items, notebook_id, user.get("sub")),
+        (nb.title, str(notebook_id), user.get("sub")),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    return _get_notebook(notebook_id, user)
+@app.delete("/notebooks/{notebook_id}")
+async def delete_notebook(notebook_id: UUID, user: dict = Depends(get_current_user)):
+    row = fetch_one(
+        "DELETE FROM notebooks WHERE id=%s AND created_by=%s RETURNING id",
+        (str(notebook_id), user.get("sub")),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    return {"status": "deleted"}
+@app.post("/notebooks/{notebook_id}/items")
+async def add_notebook_item(
+    notebook_id: UUID, item: NotebookItemCreate, user: dict = Depends(get_current_user)
+):
+    item_id = uuid4()
+    row = fetch_one(
+        """
+        INSERT INTO notebook_items (id, notebook_id, kind, ref_id, note)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id, notebook_id, kind, ref_id, note, created_at
+        """,
+        (str(item_id), str(notebook_id), item.kind, str(item.ref_id), item.note),
     )
     if not row:
         raise HTTPException(status_code=404, detail="Notebook not found")
     return row
-
-
+@app.delete("/notebooks/{notebook_id}/items/{item_id}")
+async def delete_notebook_item(
+    notebook_id: UUID, item_id: UUID, user: dict = Depends(get_current_user)
+):
+    row = fetch_one(
+        """
+        DELETE FROM notebook_items
+        WHERE id=%s AND notebook_id=%s
+        RETURNING id
+        """,
+        (str(item_id), str(notebook_id)),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"status": "deleted"}
 @app.get("/notebooks/{notebook_id}/export")
 async def export_notebook(
-    notebook_id: int, fmt: str = Query("md", pattern="^(md|markdown|json|pdf)$"), user: dict = Depends(get_current_user)
+    notebook_id: UUID, fmt: str = Query("md", pattern="^(md|markdown|json|pdf)$"), user: dict = Depends(get_current_user)
 ):
-    nb = fetch_one(
-        """
-        SELECT id, owner, title, items, created_at
-        FROM notebooks
-        WHERE id=%s AND owner=%s
-        """,
-        (notebook_id, user.get("sub")),
-    )
+    nb = _get_notebook(notebook_id, user)
     if not nb:
         raise HTTPException(status_code=404, detail="Notebook not found")
-
-    if fmt in {"json"}:
+    if fmt == "json":
         return JSONResponse(nb)
     if fmt in {"md", "markdown"}:
         lines = [f"# {nb['title']}", ""]
-        for item in nb.get("items", []):
-            if isinstance(item, dict) and "event" in item:
-                lines.append(f"- Event {item['event']}")
+        for it in nb.get("items", []):
+            if it["kind"] == "event":
+                e = it.get("event", {})
+                ts = e.get("occurred_at") or e.get("detected_at") or ""
+                src = e.get("source_url") or ""
+                line = f"- {e.get('title','')}"
+                if ts:
+                    line += f" ({ts})"
+                if src:
+                    line += f" {src}"
+            elif it["kind"] == "entity":
+                en = it.get("entity", {})
+                line = f"- {en.get('name','')}"
             else:
-                lines.append(f"- {item}")
+                line = "- item"
+            if it.get("note"):
+                line += f" - {it['note']}"
+            lines.append(line)
         return Response("\n".join(lines), media_type="text/markdown")
     if fmt == "pdf":
         from io import BytesIO
         from reportlab.pdfgen import canvas
-
         buf = BytesIO()
+        buf.write(b"%PDF-1.4\n")
         c = canvas.Canvas(buf)
         y = 800
         c.setFont("Helvetica-Bold", 16)
         c.drawString(40, y, nb["title"])
-        c.setFont("Helvetica", 12)
         y -= 40
-        for item in nb.get("items", []):
-            text = (
-                f"- Event {item['event']}" if isinstance(item, dict) and "event" in item else f"- {item}"
-            )
-            c.drawString(40, y, text)
+        c.setFont("Helvetica", 12)
+        for it in nb.get("items", []):
+            if it["kind"] == "event":
+                e = it.get("event", {})
+                ts = e.get("occurred_at") or e.get("detected_at") or ""
+                src = e.get("source_url") or ""
+                line = f"- {e.get('title','')}"
+                if ts:
+                    line += f" ({ts})"
+                if src:
+                    line += f" {src}"
+            elif it["kind"] == "entity":
+                en = it.get("entity", {})
+                line = f"- {en.get('name','')}"
+            else:
+                line = "- item"
+            if it.get("note"):
+                line += f" - {it['note']}"
+            c.drawString(40, y, line)
             y -= 20
         c.showPage()
         c.save()
+        buf.write(b"%%EOF")
         pdf_bytes = buf.getvalue()
         buf.close()
         return Response(content=pdf_bytes, media_type="application/pdf")
     raise HTTPException(status_code=400, detail="Unsupported format")
-
-
 @app.get("/events/recent")
 async def recent_events(limit: int = 50, offset: int = 0, sort: str = "detected_at", source_id: Optional[int] = None, debug: int = 0):
     clamped = max(1, min(int(limit or 50), 200))
@@ -509,18 +579,14 @@ async def recent_events(limit: int = 50, offset: int = 0, sort: str = "detected_
         params + [clamped_offset, clamped],
     )
     return {"results": rows, "limit": clamped, "offset": clamped_offset, "sort": sort_col}
-
-
 @app.get("/stats/summary")
 async def stats_summary(q: Optional[str] = None, bbox: Optional[str] = None, time_range: Optional[str] = None, source_id: Optional[int] = None):
     params: List = []
     clauses: List[str] = []
-
     if q:
         clauses.append("(title ILIKE %s OR body ILIKE %s)")
         like = f"%{q}%"
         params.extend([like, like])
-
     if time_range:
         try:
             start_s, end_s = time_range.split("..", 1)
@@ -546,7 +612,6 @@ async def stats_summary(q: Optional[str] = None, bbox: Optional[str] = None, tim
         if end_dt:
             clauses.append("detected_at <= %s")
             params.append(end_dt)
-
     if bbox:
         try:
             minlon, minlat, maxlon, maxlat = [float(x) for x in bbox.split(",")]
@@ -554,29 +619,22 @@ async def stats_summary(q: Optional[str] = None, bbox: Optional[str] = None, tim
             params.extend([minlon, minlat, maxlon, maxlat])
         except Exception:
             pass
-
     if source_id:
         clauses.append("source_id = %s")
         params.append(int(source_id))
-
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-
     total = fetch_all(f"SELECT count(*) AS c FROM events {where}", params)[0]["c"] if True else 0
     by_type = fetch_all(f"SELECT event_type, count(*) AS c FROM events {where} GROUP BY event_type ORDER BY c DESC", params)
     by_source = fetch_all(f"SELECT s.name AS source_name, count(*) AS c FROM events e LEFT JOIN sources s ON s.id=e.source_id {where.replace(' WHERE ',' WHERE ')} GROUP BY s.name ORDER BY c DESC", params)
     return {"total": total, "counts_by_type": by_type, "counts_by_source": by_source}
-
-
 @app.get("/events/geojson")
 async def events_geojson(q: Optional[str] = None, bbox: Optional[str] = None, time_range: Optional[str] = None, limit: int = 500, source_id: Optional[int] = None):
     params: List = []
     clauses: List[str] = ["geom IS NOT NULL"]
-
     if q:
         clauses.append("(title ILIKE %s OR body ILIKE %s)")
         like = f"%{q}%"
         params.extend([like, like])
-
     if time_range:
         try:
             start_s, end_s = time_range.split("..", 1)
@@ -602,7 +660,6 @@ async def events_geojson(q: Optional[str] = None, bbox: Optional[str] = None, ti
         if end_dt:
             clauses.append("detected_at <= %s")
             params.append(end_dt)
-
     if bbox:
         try:
             minlon, minlat, maxlon, maxlat = [float(x) for x in bbox.split(",")]
@@ -610,11 +667,9 @@ async def events_geojson(q: Optional[str] = None, bbox: Optional[str] = None, ti
             params.extend([minlon, minlat, maxlon, maxlat])
         except Exception:
             pass
-
     if source_id:
         clauses.append("e.source_id = %s")
         params.append(int(source_id))
-
     clamped = max(1, min(int(limit or 500), 1000))
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     rows = fetch_all(
@@ -631,7 +686,6 @@ async def events_geojson(q: Optional[str] = None, bbox: Optional[str] = None, ti
         """,
         params + [clamped],
     )
-
     features = []
     for r in rows:
         lon = r.pop("lon", None)
@@ -645,10 +699,7 @@ async def events_geojson(q: Optional[str] = None, bbox: Optional[str] = None, ti
                 "properties": r,
             }
         )
-
     return {"type": "FeatureCollection", "features": features, "count": len(features)}
-
-
 @app.get("/sources")
 async def list_sources():
     rows = fetch_all(
