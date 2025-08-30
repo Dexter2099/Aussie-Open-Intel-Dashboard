@@ -2,17 +2,56 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { MapContainer, TileLayer } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet.markercluster'
-import api from '../lib/api'
-import { Event } from '../types'
+import { api } from '../lib/api'
+import { Event, EventType } from '../types'
 
 const FALLBACK_CENTER: [number, number] = [-27.47, 153.03]
 const FALLBACK_ZOOM = 6
 
-interface Props {
-  types: string
+const ICONS: Record<EventType, L.Icon> = {
+  bushfire: L.icon({
+    iconUrl:
+      'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiIGZpbGw9IiNlNTM5MzUiLz48L3N2Zz4=',
+    iconSize: [24, 24],
+    iconAnchor: [12, 24],
+    popupAnchor: [0, -24],
+  }),
+  weather: L.icon({
+    iconUrl:
+      'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiIGZpbGw9IiMxZTg4ZTUiLz48L3N2Zz4=',
+    iconSize: [24, 24],
+    iconAnchor: [12, 24],
+    popupAnchor: [0, -24],
+  }),
+  maritime: L.icon({
+    iconUrl:
+      'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiIGZpbGw9IiMwMDg5N2IiLz48L3N2Zz4=',
+    iconSize: [24, 24],
+    iconAnchor: [12, 24],
+    popupAnchor: [0, -24],
+  }),
+  cyber: L.icon({
+    iconUrl:
+      'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiIGZpbGw9IiM3NTc1NzUiLz48L3N2Zz4=',
+    iconSize: [24, 24],
+    iconAnchor: [12, 24],
+    popupAnchor: [0, -24],
+  }),
+  news: L.icon({
+    iconUrl:
+      'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiIGZpbGw9IiM3NTc1NzUiLz48L3N2Zz4=',
+    iconSize: [24, 24],
+    iconAnchor: [12, 24],
+    popupAnchor: [0, -24],
+  }),
 }
 
-export default function MapView({ types }: Props) {
+interface Props {
+  types: string
+  onSelect: (ev: Event) => void
+}
+
+export default function MapView({ types, onSelect }: Props) {
   const mapRef = useRef<L.Map | null>(null)
   const clusterRef = useRef<L.MarkerClusterGroup>(L.markerClusterGroup())
   const [mapReady, setMapReady] = useState(false)
@@ -26,12 +65,20 @@ export default function MapView({ types }: Props) {
         clusterRef.current.clearLayers()
         const markers: L.Marker[] = []
         res.data.forEach((ev) => {
-          if (typeof ev.lat === 'number' && typeof ev.lon === 'number') {
-            const marker = L.marker([ev.lat, ev.lon])
-            const title = ev.title ?? 'Untitled'
-            const time = (ev as any).time ?? ''
-            const type = (ev as any).type ?? ''
-            marker.bindPopup(`<strong>${title}</strong><br/>${time}<br/>${type}<br/>Open`)
+          const loc = ev.location
+          if (loc && typeof loc.lat === 'number' && typeof loc.lon === 'number') {
+            const marker = L.marker([loc.lat, loc.lon], { icon: ICONS[ev.type] })
+            const popupDiv = document.createElement('div')
+            popupDiv.innerHTML = `<strong>${ev.title}</strong><br/>${new Date(ev.time).toLocaleString()}<br/>${ev.type}<br/>`
+            const btn = document.createElement('button')
+            btn.textContent = 'Open'
+            btn.type = 'button'
+            btn.addEventListener('click', () => {
+              onSelect(ev)
+              marker.closePopup()
+            })
+            popupDiv.appendChild(btn)
+            marker.bindPopup(popupDiv)
             markers.push(marker)
           }
         })
@@ -43,7 +90,7 @@ export default function MapView({ types }: Props) {
         }
       })
       .catch((err) => console.error(err))
-  }, [types])
+  }, [types, onSelect])
 
   useEffect(() => {
     if (!mapReady) return

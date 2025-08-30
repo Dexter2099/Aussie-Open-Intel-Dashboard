@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import MapView from '../components/MapView'
+import EventDrawer from '../components/EventDrawer'
+import { Event } from '../types'
 
 const TYPES = [
   { key: 'bushfire', label: 'Bushfire' },
@@ -9,6 +11,7 @@ const TYPES = [
 
 export default function MapPage() {
   const [selected, setSelected] = useState<string[]>(TYPES.map((t) => t.key))
+  const [activeEvent, setActiveEvent] = useState<Event | null>(null)
 
   const toggle = (type: string) => {
     setSelected((prev) =>
@@ -39,7 +42,8 @@ export default function MapPage() {
           </button>
         ))}
       </div>
-      <MapView types={typeQuery} />
+      <MapView types={typeQuery} onSelect={setActiveEvent} />
+      <EventDrawer event={activeEvent} onClose={() => setActiveEvent(null)} />
     </>
   )
 }
