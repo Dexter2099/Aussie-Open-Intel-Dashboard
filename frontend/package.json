@@ -11,15 +11,20 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@types/leaflet": "^1.9.20",
     "axios": "^1.11.0",
+    "leaflet": "^1.9.4",
+    "leaflet.markercluster": "^1.5.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-leaflet": "^4.2.1",
     "react-router-dom": "^6.30.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.0.1",
+    "@types/leaflet.markercluster": "^1.5.5",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
