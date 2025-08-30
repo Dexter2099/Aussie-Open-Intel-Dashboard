@@ -1,9 +1,5 @@
 import axios from 'axios'
-codex/add-/graph-route-and-graphpage-component
-import type { Event, GraphData } from '../types'
-
-import type { Event, TimelineEvent } from '../types'
-main
+import type { Event, GraphData, TimelineEvent } from '../types'
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE || '/api',
@@ -14,14 +10,16 @@ export function fetchEvents(types: string) {
   return api.get<Event[]>(`/events?since=48h${typeParam}`)
 }
 
-codex/add-/graph-route-and-graphpage-component
 export function fetchGraph(entityId: string) {
   const param = entityId ? `?entity_id=${entityId}` : ''
   return api.get<GraphData>(`/graph${param}`)
+}
 
 export async function fetchTimelineEvents(cursor?: string, limit = 50) {
   const url = `/events?limit=${limit}${cursor ? `&cursor=${cursor}` : ''}`
   const res = await api.get<TimelineEvent[]>(url)
-  return { events: res.data, nextCursor: res.headers['x-next-cursor'] as string | undefined }
-main
+  return {
+    events: res.data,
+    nextCursor: res.headers['x-next-cursor'] as string | undefined,
+  }
 }
