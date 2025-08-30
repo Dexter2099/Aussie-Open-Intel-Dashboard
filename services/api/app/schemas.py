@@ -45,7 +45,7 @@ class Entity(BaseModel):
     type: Literal["Person", "Org", "Vessel", "Aircraft", "Location", "Asset", "EventType"]
     name: str
     canonical_key: Optional[str] = None
-    attrs: dict = {}
+    attrs: dict = Field(default_factory=dict)
 
 
 class Notebook(BaseModel):
