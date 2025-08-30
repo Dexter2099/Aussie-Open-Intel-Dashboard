@@ -12,7 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.fixture(scope="module")
 def db_conn():
     dsn = "postgresql://aoidb:aoidb@localhost/aoidb"
-    conn = psycopg.connect(dsn)
+    try:
+        conn = psycopg.connect(dsn)
+    except psycopg.OperationalError:
+        pytest.skip("database not available")
     migrations = ROOT / "db" / "migrations"
     with conn.cursor() as cur:
         for path in sorted(migrations.glob("*.sql")):
