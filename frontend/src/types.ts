@@ -14,7 +14,6 @@ export interface Event {
   source: string
 }
 
-codex/add-/graph-route-and-graphpage-component
 export interface GraphNode {
   id: string
   label: string
@@ -30,11 +29,12 @@ export interface GraphLink {
 export interface GraphData {
   nodes: GraphNode[]
   links: GraphLink[]
+}
 
 export interface TimelineEvent {
   id: string
   title: string
   event_type: EventType
   detected_at: string
-main
 }
+

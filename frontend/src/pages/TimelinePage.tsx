@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { fetchTimelineEvents } from '../lib/api'
+import EventDrawer from '../components/EventDrawer'
 import type { TimelineEvent } from '../types'
 
 export default function TimelinePage() {
   const [events, setEvents] = useState<TimelineEvent[]>([])
   const [cursor, setCursor] = useState<string | undefined>()
   const [loading, setLoading] = useState(false)
+  const [openId, setOpenId] = useState<string | null>(null)
 
   const loadMore = () => {
     if (loading) return
@@ -52,8 +54,15 @@ export default function TimelinePage() {
           <div style={{ flex: 1 }}>{ev.title}</div>
           <button
             type="button"
-            onClick={() => console.log('Add to Notebook', ev.id)}
+            onClick={() => setOpenId(ev.id)}
             style={{ marginLeft: '1rem' }}
+          >
+            Open
+          </button>
+          <button
+            type="button"
+            onClick={() => console.log('Add to Notebook', ev.id)}
+            style={{ marginLeft: '0.5rem' }}
           >
             Add to Notebook
           </button>
@@ -66,6 +75,7 @@ export default function TimelinePage() {
           </button>
         </div>
       )}
+      <EventDrawer eventId={openId} onClose={() => setOpenId(null)} />
     </div>
   )
 }
