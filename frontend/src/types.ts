@@ -13,3 +13,10 @@ export interface Event {
   entities: string[]
   source: string
 }
+
+export interface TimelineEvent {
+  id: string
+  title: string
+  event_type: EventType
+  detected_at: string
+}
