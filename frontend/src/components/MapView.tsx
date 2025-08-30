@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { MapContainer, TileLayer } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet.markercluster'
@@ -8,16 +8,22 @@ import { Event } from '../types'
 const FALLBACK_CENTER: [number, number] = [-27.47, 153.03]
 const FALLBACK_ZOOM = 6
 
-export default function MapView() {
+interface Props {
+  types: string
+}
+
+export default function MapView({ types }: Props) {
   const mapRef = useRef<L.Map | null>(null)
+  const clusterRef = useRef<L.MarkerClusterGroup>(L.markerClusterGroup())
+  const [mapReady, setMapReady] = useState(false)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
     if (!mapRef.current) return
-    const cluster = L.markerClusterGroup()
-
+    const typeParam = types ? `&type=${types}` : ''
     api
-      .get<Event[]>('/events?since=48h&type=bushfire|weather|maritime')
+      .get<Event[]>(`/events?since=48h${typeParam}`)
       .then((res) => {
+        clusterRef.current.clearLayers()
         const markers: L.Marker[] = []
         res.data.forEach((ev) => {
           if (typeof ev.lat === 'number' && typeof ev.lon === 'number') {
@@ -31,22 +37,30 @@ export default function MapView() {
         })
 
         if (markers.length) {
-          cluster.addLayers(markers)
-          mapRef.current!.addLayer(cluster)
+          clusterRef.current.addLayers(markers)
           const bounds = L.latLngBounds(markers.map((m) => m.getLatLng()))
           mapRef.current!.fitBounds(bounds)
-        } else {
-          mapRef.current!.setView(FALLBACK_CENTER, FALLBACK_ZOOM)
         }
       })
       .catch((err) => console.error(err))
-  }, [])
+  }, [types])
+
+  useEffect(() => {
+    if (!mapReady) return
+    fetchData()
+    const id = setInterval(fetchData, 30000)
+    return () => clearInterval(id)
+  }, [fetchData, mapReady])
 
   return (
     <MapContainer
       center={FALLBACK_CENTER}
       zoom={FALLBACK_ZOOM}
-      whenCreated={(map) => (mapRef.current = map)}
+      whenCreated={(map) => {
+        mapRef.current = map
+        map.addLayer(clusterRef.current)
+        setMapReady(true)
+      }}
       style={{ height: '100%', width: '100%' }}
     >
       <TileLayer
