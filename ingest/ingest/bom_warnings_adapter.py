@@ -1,3 +1,11 @@
+"""Bureau of Meteorology Queensland warnings adapter.
+
+This module exposes helper functions and a small CLI that fetches the BOM
+Queensland RSS/Atom feed and inserts each warning as a normalised event.
+The implementation mirrors the structure of the existing ACSC adapter so
+that tests can patch the database layer easily.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -9,7 +17,6 @@ from urllib import request
 from xml.etree import ElementTree as ET
 
 from . import common
-
 FEED_URL = "http://www.bom.gov.au/fwo/IDZ00054.warnings_qld.xml"
 
 
@@ -32,7 +39,12 @@ def fetch(url: str = FEED_URL) -> str:
 
 
 def parse(xml_text: str) -> List[Event]:
-    """Parse feed XML into a list of :class:`Event` objects."""
+    """Parse feed XML into a list of :class:`Event` objects.
+
+    Each feed item is mapped to :class:`Event` capturing the title, issue
+    time and link.  The complete XML snippet for the item is stored in the
+    ``raw`` field so that no information is lost during ingestion.
+    """
     root = ET.fromstring(xml_text)
     items = root.findall(".//item")
     if not items:
@@ -84,7 +96,14 @@ def insert_events(events: List[Event]) -> int:
 
 
 def run(since: str) -> int:
-    """Fetch the feed and persist recent events."""
+    """Fetch the feed and persist recent events.
+
+    Parameters
+    ----------
+    since:
+        Duration string such as ``"48h"`` used to filter out historical
+        warnings.  Only items newer than this are inserted.
+    """
     cutoff = common.parse_since(since)
     xml_text = fetch(FEED_URL)
     events = [ev for ev in parse(xml_text) if ev.time and ev.time >= cutoff]
