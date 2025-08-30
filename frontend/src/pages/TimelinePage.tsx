@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchTimelineEvents } from '../lib/api'
+codex/add-filters-to-timeline-page
 import type { EventType, TimelineEvent } from '../types'
 
 const EVENT_TYPES: EventType[] = ['bushfire', 'weather', 'maritime', 'cyber', 'news']
@@ -18,15 +19,23 @@ const RANGES = [
   { value: '30d', label: 'Last 30d' },
 ]
 
+import EventDrawer from '../components/EventDrawer'
+import type { TimelineEvent } from '../types'
+main
+
 export default function TimelinePage() {
   const [events, setEvents] = useState<TimelineEvent[]>([])
   const [cursor, setCursor] = useState<string | undefined>()
   const [loading, setLoading] = useState(false)
+codex/add-filters-to-timeline-page
   const [selectedTypes, setSelectedTypes] = useState<EventType[]>([...EVENT_TYPES])
   const [since, setSince] = useState('48h')
 
   const typeQuery =
     selectedTypes.length === EVENT_TYPES.length ? undefined : selectedTypes.join('|')
+=======
+  const [openId, setOpenId] = useState<string | null>(null)
+main
 
   const loadMore = (reset = false) => {
     if (loading) return
@@ -109,6 +118,7 @@ export default function TimelinePage() {
               borderBottom: '1px solid #ddd',
             }}
           >
+codex/add-filters-to-timeline-page
             <div style={{ width: '12rem', marginRight: '1rem' }}>
               {new Date(ev.detected_at).toLocaleString()}
             </div>
@@ -133,6 +143,27 @@ export default function TimelinePage() {
           </div>
         ))
       )}
+
+            {ev.event_type}
+          </span>
+          <div style={{ flex: 1 }}>{ev.title}</div>
+          <button
+            type="button"
+            onClick={() => setOpenId(ev.id)}
+            style={{ marginLeft: '1rem' }}
+          >
+            Open
+          </button>
+          <button
+            type="button"
+            onClick={() => console.log('Add to Notebook', ev.id)}
+            style={{ marginLeft: '0.5rem' }}
+          >
+            Add to Notebook
+          </button>
+        </div>
+      ))}
+main
       {cursor && (
         <div style={{ textAlign: 'center', marginTop: '1rem' }}>
           <button type="button" onClick={() => loadMore()} disabled={loading}>
@@ -140,6 +171,7 @@ export default function TimelinePage() {
           </button>
         </div>
       )}
+      <EventDrawer eventId={openId} onClose={() => setOpenId(null)} />
     </div>
   )
 }
